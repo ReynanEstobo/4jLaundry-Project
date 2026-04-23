@@ -709,56 +709,65 @@ export default function Orders() {
     }
 
     // Deduct add-on items from inventory on new orders only
-    // ✅ AUTO DEFAULT INVENTORY USAGE (per garment)
-
-    // ✅ COMBINED INVENTORY DEDUCTION (default + add-ons)
+    // ✅ Deduct inventory (default usage + add-ons combined)
     if (!editing && orderData) {
-      const usageMap = {};
+      try {
+        // 🔥 1. Compute loads
+        const loads = Math.ceil(weight / BUNDLE_KG);
 
-      // 🔹 1. DEFAULT USAGE
-      if (settings.default_item_usage) {
-        Object.entries(settings.default_item_usage).forEach(([itemId, qty]) => {
-          usageMap[itemId] = (usageMap[itemId] || 0) + Number(qty);
-        });
-      }
+        // 🔥 2. Get ALL inventory items
+        const { data: allItems, error } = await supabase
+          .from("inventory_items")
+          .select("*");
 
-      // 🔹 2. ADD-ONS
-      addonEntries.forEach(([itemId, qty]) => {
-        usageMap[itemId] = (usageMap[itemId] || 0) + Number(qty);
-      });
+        if (error) throw error;
 
-      const promises = Object.entries(usageMap).flatMap(
-        ([itemId, totalQty]) => {
-          const item = soapItems.find((i) => String(i.id) === String(itemId));
+        const operations = [];
 
-          if (!item) return [];
+        for (const item of allItems) {
+          const usagePerLoad = Number(item.usage_per_load) || 0;
 
-          // 🚫 Prevent negative stock
-          if (item.current_stock < totalQty) {
-            toast.error(`${item.name} has insufficient stock`);
-            return [];
-          }
+          // ✅ DEFAULT deduction (always applies)
+          const defaultDeduction = usagePerLoad * loads;
 
-          const newStock = item.current_stock - totalQty;
+          // ✅ ADD-ON deduction (only if selected)
+          const addonQty = form.addons[item.id] || 0;
 
-          return [
+          // ✅ TOTAL deduction
+          const totalDeduction = defaultDeduction + addonQty;
+
+          if (totalDeduction <= 0) continue;
+
+          const newStock = Math.max(
+            0,
+            Number(item.current_stock) - totalDeduction,
+          );
+
+          // 🔥 Update stock
+          operations.push(
             supabase
               .from("inventory_items")
               .update({ current_stock: newStock })
-              .eq("id", itemId),
+              .eq("id", item.id),
+          );
 
+          // 🔥 Log usage
+          operations.push(
             supabase.from("inventory_usage_log").insert({
-              item_id: itemId,
-              quantity_used: totalQty,
+              item_id: item.id,
+              quantity_used: totalDeduction,
               order_id: orderData.id,
-              note: "Auto deduction (default + add-ons)",
             }),
-          ];
-        },
-      );
+          );
+        }
 
-      await Promise.all(promises);
+        await Promise.all(operations);
+      } catch (err) {
+        console.error("Inventory deduction error:", err);
+        toast.error("Failed to deduct inventory");
+      }
     }
+
     // Send order received email for new orders
     if (
       !editing &&
