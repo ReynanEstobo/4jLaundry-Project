@@ -30,10 +30,10 @@ const STATUS_FLOW = [
 ];
 const STATUS_LABELS = {
   pending: "Pending",
-  washing: "Wash",
-  drying: "Dry",
-  folding: "Fold",
-  ready: "Ready",
+  washing: "Washing",
+  drying: "Drying",
+  folding: "Folding",
+  ready: "Ready for pick-up",
   released: "Released",
 };
 const STATUS_ICONS = {

@@ -264,6 +264,7 @@ export default function LandingPage() {
   });
   const [sending, setSending] = useState(false);
   const [settings, setSettings] = useState({});
+  const [settingsVersion, setSettingsVersion] = useState(0);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -302,47 +303,59 @@ export default function LandingPage() {
   ];
   const getStageDurations = () => ({
     pending: 0,
-    washing: Number(settings.etaWash) || 45,
-    drying: Number(settings.etaDrying) || 40,
-    folding: Number(settings.etaFolding) || 15,
+    washing: Number(settings.etawash) || 45,
+    drying: Number(settings.etadrying) || 40,
+    folding: Number(settings.etafolding) || 15,
     ready: 0,
     released: 0,
   });
 
   function calculateETA(order) {
     const durations = getStageDurations();
-    const stages = ["pending", "washing", "drying", "folding", "ready"];
-    const currentIndex = stages.indexOf(order.status);
-    if (currentIndex === -1 || order.status === "released") return null;
+
+    const normalizedStatus = (order.status || "").toLowerCase().trim();
+
+    const safeStatus = TRACK_STAGES.includes(normalizedStatus)
+      ? normalizedStatus
+      : "pending";
+
+    if (safeStatus === "released") return null;
+
+    const currentIndex = TRACK_STAGES.indexOf(safeStatus);
+
     let remainingMinutes = 0;
-    for (let i = currentIndex; i < stages.length; i++) {
-      remainingMinutes += durations[stages[i]] || 0;
+
+    for (let i = currentIndex; i < TRACK_STAGES.length; i++) {
+      const stage = TRACK_STAGES[i];
+
+      if (stage === "released") break;
+
+      remainingMinutes += durations[stage] || 0;
     }
-    if (order.weight_kg) {
-      remainingMinutes += order.weight_kg * 3;
-    }
+
     const eta = new Date(Date.now() + remainingMinutes * 60000);
+
     return { eta, remainingMinutes };
   }
 
   const STAGE_LABELS = {
     pending: "Pending",
-    washing: "Wash",
-    drying: "Dry",
-    folding: "Fold",
-    ready: "Ready",
+    washing: "Washing",
+    drying: "Drying",
+    folding: "Folding",
+    ready: "Ready for pick-up",
     released: "Released",
   };
   function getTimeRemaining(order) {
-    if (!order.stage_started_at) return "Waiting start";
+    if (!order.stage_started_at) return "Queued";
 
     const stageStart = new Date(order.stage_started_at).getTime();
     const now = Date.now();
 
     const durations = {
-      washing: (Number(settings.etaWash) || 45) * 60000,
-      drying: (Number(settings.etaDrying) || 40) * 60000,
-      folding: (Number(settings.etaFolding) || 15) * 60000,
+      washing: (Number(settings.etawash) || 10) * 60000,
+      drying: (Number(settings.etadrying) || 10) * 60000,
+      folding: (Number(settings.etafolding) || 10) * 60000,
     };
 
     const duration = durations[order.status];
@@ -440,13 +453,36 @@ export default function LandingPage() {
   }, [trackResults !== null, trackOrderId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    async function loadSettings() {
+    let isMounted = true;
+
+    const fetchSettings = async () => {
       const { data } = await supabase.from("settings").select("*").single();
+      if (data && isMounted) setSettings(data);
+    };
 
-      if (data) setSettings(data);
-    }
+    fetchSettings();
 
-    loadSettings();
+    // 🔥 REALTIME SUBSCRIPTION
+    const channel = supabase
+      .channel("settings-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "settings" },
+        (payload) => {
+          if (payload.new) {
+            setSettings(payload.new);
+
+            // 🔥 FORCE ETA RECALCULATION
+            setSettingsVersion((v) => v + 1);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
   }, []);
   useEffect(() => {
     const onScroll = () => {
@@ -752,111 +788,121 @@ ${formData.message}
             {trackError && <p className="track-error">{trackError}</p>}
           </div>
 
-          {trackResults && (
-            <div className="track-results">
-              {trackResults.map((order) => {
-                const currentIdx = TRACK_STAGES.indexOf(order.status);
-                const etaData = calculateETA(order);
-                return (
-                  <div className="track-card" key={order.id}>
-                    <div className="track-card-header">
-                      <div className="track-card-info">
-                        <span className="track-order-num">
-                          #{order.order_number}
-                        </span>
-                        <span className="track-customer">
-                          {order.customer_name}
-                        </span>
-                      </div>
-                      <div className="track-card-meta">
-                        <span className="track-service">
-                          {order.service_name}
-                        </span>
-                        <span className="track-weight">
-                          {order.weight_kg} kg
-                        </span>
-                      </div>
-                    </div>
-                    <div className="track-progress">
-                      {TRACK_STAGES.map((stage, i) => {
-                        const done = i <= currentIdx;
-                        const isCurrent = i === currentIdx;
-                        return (
-                          <div
-                            className={`track-step ${done ? "done" : ""} ${isCurrent ? "current" : ""}`}
-                            key={stage}
-                          >
-                            <div className="track-dot">
-                              {done ? (
-                                <CheckCircle2 size={16} />
-                              ) : (
-                                <Circle size={16} />
-                              )}
-                            </div>
-                            {i < TRACK_STAGES.length - 1 && (
-                              <div
-                                className={`track-line ${done && i < currentIdx ? "filled" : ""}`}
-                              />
-                            )}
-                            <span className="track-label">
-                              {STAGE_LABELS[stage]}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="track-card-footer">
-                      <span>
-                        Status:{" "}
-                        <strong
-                          className={`status-text status-${order.status}`}
-                        >
-                          {STAGE_LABELS[order.status] || order.status}
-                        </strong>
+          {Array.isArray(trackResults) &&
+            trackResults.map((order) => {
+              const normalizedStatus = (order.status || "")
+                .toLowerCase()
+                .trim();
+
+              const safeStatus = TRACK_STAGES.includes(normalizedStatus)
+                ? normalizedStatus
+                : "pending";
+
+              const currentIdx = TRACK_STAGES.indexOf(safeStatus);
+
+              const etaData = calculateETA(order);
+
+              return (
+                <div className="track-card" key={order.id}>
+                  <div className="track-card-header">
+                    <div className="track-card-info">
+                      <span className="track-order-num">
+                        #{order.order_number}
                       </span>
-
-                      <span>
-                        Placed:{" "}
-                        {new Date(order.created_at).toLocaleDateString(
-                          "en-PH",
-                          {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          },
-                        )}
+                      <span className="track-customer">
+                        {order.customer_name}
                       </span>
-
-                      {/* 📅 OVERALL ETA (OLD BEHAVIOR) */}
-                      {etaData &&
-                        !["ready", "released"].includes(order.status) && (
-                          <>
-                            <span>
-                              ETA:{" "}
-                              <strong>
-                                {etaData.eta.toLocaleString("en-PH", {
-                                  month: "short",
-                                  day: "numeric",
-                                  hour: "numeric",
-                                  minute: "numeric",
-                                })}
-                              </strong>
-                            </span>
-
-                            <span>
-                              Est. finish in:{" "}
-                              <strong>
-                                {Math.ceil(etaData.remainingMinutes / 60)} hrs
-                              </strong>
-                            </span>
-                          </>
-                        )}
+                    </div>
+                    <div className="track-card-meta">
+                      <span className="track-service">
+                        {order.service_name}
+                      </span>
+                      <span className="track-weight">{order.weight_kg} kg</span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
+
+                  {/* ✅ PROGRESS BAR */}
+                  <div className="track-progress">
+                    {TRACK_STAGES.map((stage, i) => {
+                      const done = i <= currentIdx;
+                      const isCurrent = i === currentIdx;
+
+                      return (
+                        <div
+                          className={`track-step ${done ? "done" : ""} ${isCurrent ? "current" : ""}`}
+                          key={stage}
+                        >
+                          <div className="track-dot">
+                            {done ? (
+                              <CheckCircle2 size={16} />
+                            ) : (
+                              <Circle size={16} />
+                            )}
+                          </div>
+
+                          {i < TRACK_STAGES.length - 1 && (
+                            <div
+                              className={`track-line ${
+                                done && i < currentIdx ? "filled" : ""
+                              }`}
+                            />
+                          )}
+
+                          <span className="track-label">
+                            {STAGE_LABELS[stage] || stage}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* ✅ FOOTER */}
+                  <div className="track-card-footer">
+                    <span>
+                      Status:{" "}
+                      <strong className={`status-text status-${safeStatus}`}>
+                        {STAGE_LABELS[safeStatus]}
+                      </strong>
+                    </span>
+
+                    <span>
+                      Placed:{" "}
+                      {new Date(order.created_at).toLocaleDateString("en-PH", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </span>
+
+                    {/* ✅ ETA */}
+                    {etaData && !["ready", "released"].includes(safeStatus) && (
+                      <>
+                        <span>
+                          ETA:{" "}
+                          <strong>
+                            {etaData.eta.toLocaleString("en-PH", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "numeric",
+                            })}
+                          </strong>
+                        </span>
+
+                        <span>
+                          Estimated time:{" "}
+                          <strong>
+                            {etaData.remainingMinutes < 60
+                              ? `${etaData.remainingMinutes} mins`
+                              : `${Math.ceil(etaData.remainingMinutes / 60)} hrs`}
+                          </strong>
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
         </div>
       </section>
 
