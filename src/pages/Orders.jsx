@@ -57,9 +57,9 @@ const MACHINE_CAPACITY_DEFAULTS = {
 
 function getStageDurations(settings) {
   return {
-    washing: (Number(settings.etaWash) || 45) * 60000,
-    drying: (Number(settings.etaDrying) || 40) * 60000,
-    folding: (Number(settings.etaFolding) || 15) * 60000,
+    washing: (Number(settings.etawash) || 45) * 60000,
+    drying: (Number(settings.etadrying) || 40) * 60000,
+    folding: (Number(settings.etafolding) || 15) * 60000,
   };
 }
 
@@ -67,9 +67,9 @@ function calculateDynamicETA(order, settings) {
   if (!order.created_at) return null;
 
   const totalMinutes =
-    (Number(settings.etaWash) || 45) +
-    (Number(settings.etaDrying) || 40) +
-    (Number(settings.etaFolding) || 15);
+    (Number(settings.etawash) || 45) +
+    (Number(settings.etadrying) || 40) +
+    (Number(settings.etafolding) || 15);
 
   const baseTime = new Date(order.created_at);
   return new Date(baseTime.getTime() + totalMinutes * 60000);
@@ -107,9 +107,9 @@ async function sendOrderSMS(
   if (!phone) return;
   try {
     const etaMinutes =
-      (Number(settings.etaWash) || 45) +
-      (Number(settings.etaDrying) || 40) +
-      (Number(settings.etaFolding) || 15);
+      (Number(settings.etawash) || 45) +
+      (Number(settings.etadrying) || 40) +
+      (Number(settings.etafolding) || 15);
     const etaHours = Math.floor(etaMinutes / 60);
     const etaRemainMins = etaMinutes % 60;
     const etaText =
@@ -157,9 +157,9 @@ async function sendOrderReceivedEmail(
   try {
     // Calculate total ETA from all stage durations
     const etaMinutes =
-      (Number(settings.etaWash) || 45) +
-      (Number(settings.etaDrying) || 40) +
-      (Number(settings.etaFolding) || 15);
+      (Number(settings.etawash) || 45) +
+      (Number(settings.etadrying) || 40) +
+      (Number(settings.etafolding) || 15);
     const etaHours = Math.floor(etaMinutes / 60);
     const etaRemainMins = etaMinutes % 60;
     const etaText =
@@ -201,19 +201,31 @@ export default function Orders() {
   const [editing, setEditing] = useState(null);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [viewMode, setViewMode] = useState(
-    () => localStorage.getItem("4j_orders_view") || "table",
-  );
+  const [settings, setSettings] = useState({});
+  const [viewMode, setViewMode] = useState("table");
+
+  useEffect(() => {
+    if (settings?.defaultview) {
+      setViewMode(settings.defaultview);
+    }
+  }, [settings]);
   const [dragOrder, setDragOrder] = useState(null);
   const [, setTicker] = useState(0);
 
-  const [settingsState] = useState(() =>
-    JSON.parse(localStorage.getItem("4j_laundry_settings") || "{}"),
-  );
-  const settings = settingsState;
-  const BUNDLE_KG = Number(settings.bundleKg) || 8;
-  const BUNDLE_PRICE = Number(settings.bundlePrice) || 200;
-  const SOAP_PRICE = Number(settings.addonPrice) || 15;
+  const mappedSettings = {
+    etaWash: settings.etawash,
+    etaDrying: settings.etadrying,
+    etaFolding: settings.etafolding,
+    bundleKg: settings.bundlekg,
+    bundlePrice: settings.bundleprice,
+    addonPrice: settings.addonprice,
+    capacityWash: settings.capacitywash,
+    capacityDrying: settings.capacitydrying,
+    capacityFolding: settings.capacityfolding,
+  };
+  const BUNDLE_KG = Number(mappedSettings.bundleKg) || 8;
+  const BUNDLE_PRICE = Number(mappedSettings.bundlePrice) || 200;
+  const SOAP_PRICE = Number(mappedSettings.addonPrice) || 15;
 
   const [form, setForm] = useState({
     customer_id: "",
@@ -230,28 +242,6 @@ export default function Orders() {
 
   const [phoneMatch, setPhoneMatch] = useState(null); // null = not searched, object = found, false = not found
 
-  // Track when each order entered its current stage (persisted in localStorage)
-  const stageTimesRef = useRef(
-    JSON.parse(localStorage.getItem("4j_stage_times") || "{}"),
-  );
-  function getStageStart(orderId, fallback) {
-    return stageTimesRef.current[orderId] || fallback || Date.now();
-  }
-  function setStageStart(orderId) {
-    stageTimesRef.current[orderId] = Date.now();
-    localStorage.setItem(
-      "4j_stage_times",
-      JSON.stringify(stageTimesRef.current),
-    );
-  }
-  function clearStageStart(orderId) {
-    delete stageTimesRef.current[orderId];
-    localStorage.setItem(
-      "4j_stage_times",
-      JSON.stringify(stageTimesRef.current),
-    );
-  }
-
   function getStageCapacity(stage) {
     const keyMap = {
       washing: "capacityWash",
@@ -266,7 +256,7 @@ export default function Orders() {
   function getStageLoad(stage, currentOrders = orders) {
     if (!TIMED_STAGES.includes(stage)) return 0;
     return currentOrders.filter(
-      (order) => order.status === stage && isTimerStarted(order.id),
+      (order) => order.status === stage && !order.stage_started_at,
     ).length;
   }
 
@@ -337,18 +327,26 @@ export default function Orders() {
   // Realtime: refresh when orders, customers, or inventory change
   useRealtime(["orders", "customers", "inventory_items"], loadData);
 
-  // Check if timer started
-  function isTimerStarted(orderId) {
-    return !!stageTimesRef.current[orderId];
-  }
-  function startTimer(orderId) {
-    stageTimesRef.current[orderId] = Date.now();
-    localStorage.setItem(
-      "4j_stage_times",
-      JSON.stringify(stageTimesRef.current),
-    );
-    toast.success("Timer started!");
-  }
+  useEffect(() => {
+    async function loadSettings() {
+      const { data, error } = await supabase
+        .from("settings")
+        .select("*")
+        .single();
+
+      if (!error && data) {
+        setSettings(data);
+      }
+    }
+
+    loadSettings();
+  }, []);
+
+  useRealtime(["settings"], async () => {
+    const { data } = await supabase.from("settings").select("*").single();
+
+    if (data) setSettings(data);
+  });
 
   // Auto-advance orders whose timers were manually started and expired
   const autoAdvanceRef = useRef(false);
@@ -380,9 +378,9 @@ export default function Orders() {
 
         for (const order of activeOrders) {
           // Only advance if timer was started (auto or manual)
-          if (!stageTimesRef.current[order.id]) continue;
+          if (!order.stage_started_at) continue;
 
-          const stageStart = stageTimesRef.current[order.id];
+          const stageStart = new Date(order.stage_started_at).getTime();
           const duration = stageDurations[order.status];
           if (!duration) continue;
 
@@ -392,7 +390,12 @@ export default function Orders() {
             if (idx < 0 || idx >= STATUS_FLOW.length - 1) continue;
             const nextStatus = STATUS_FLOW[idx + 1];
 
-            const updates = { status: nextStatus };
+            const updates = {
+              status: nextStatus,
+              stage_started_at: AUTO_TIMER_STAGES.includes(nextStatus)
+                ? new Date().toISOString()
+                : null,
+            };
             if (nextStatus === "ready")
               updates.actual_completion = new Date().toISOString();
 
@@ -403,11 +406,9 @@ export default function Orders() {
             if (updateErr) continue;
 
             advanced = true;
-            clearStageStart(order.id);
 
             // Auto-start timer if next stage is an auto-timer stage (wash/dry)
             if (AUTO_TIMER_STAGES.includes(nextStatus)) {
-              setStageStart(order.id);
             }
 
             if (nextStatus === "ready" && order.customers?.email) {
@@ -441,11 +442,59 @@ export default function Orders() {
     const interval = setInterval(checkAndAdvance, 3000);
     return () => clearInterval(interval);
   }, [settings, loadData]);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTicker((t) => t + 1); // 🔥 forces re-render every second
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
-    const ticker = setInterval(() => setTicker((t) => t + 1), 1000);
-    return () => clearInterval(ticker);
-  }, []);
+    const interval = setInterval(async () => {
+      for (const order of orders) {
+        if (!order.stage_started_at) continue;
+
+        const stageStart = new Date(order.stage_started_at).getTime();
+
+        const durations = {
+          washing: (Number(settings.etawash) || 45) * 60000,
+          drying: (Number(settings.etadrying) || 40) * 60000,
+          folding: (Number(settings.etafolding) || 15) * 60000,
+        };
+
+        const duration = durations[order.status];
+        if (!duration) continue;
+
+        const now = Date.now();
+
+        if (now >= stageStart + duration) {
+          const nextStageMap = {
+            washing: "drying",
+            drying: "folding",
+            folding: "ready",
+          };
+
+          const nextStatus = nextStageMap[order.status];
+          if (!nextStatus) continue;
+
+          await supabase
+            .from("orders")
+            .update({
+              status: nextStatus,
+              stage_started_at: AUTO_TIMER_STAGES.includes(nextStatus)
+                ? new Date().toISOString()
+                : null,
+            })
+            .eq("id", order.id);
+
+          loadData();
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [orders, settings]);
 
   function openNew() {
     setEditing(null);
@@ -593,12 +642,9 @@ export default function Orders() {
     }
 
     const totalEtaMinutes =
-      (Number(settings.etaWash) || 45) +
-      (Number(settings.etaDrying) || 40) +
-      (Number(settings.etaFolding) || 15);
-    const estimated_completion = new Date(
-      Date.now() + totalEtaMinutes * 60000,
-    ).toISOString();
+      (Number(settings.etawash) || 45) +
+      (Number(settings.etadrying) || 40) +
+      (Number(settings.etafolding) || 15);
 
     const payload = {
       customer_id: customerId || null,
@@ -608,7 +654,7 @@ export default function Orders() {
       notes: form.notes,
       payment_method: form.payment_method,
       payment_status,
-      estimated_completion,
+
       ...(!editing && { status: "pending" }),
     };
 
@@ -655,7 +701,6 @@ export default function Orders() {
 
     // Track stage start time for new orders
     if (!editing && orderData) {
-      setStageStart(orderData.id);
     }
 
     // Deduct add-on items from inventory on new orders only
@@ -715,61 +760,58 @@ export default function Orders() {
   }
 
   async function updateStatus(order, newStatus) {
-    if (order.status === newStatus) return;
+    const updates = {
+      status: newStatus,
+      stage_started_at: AUTO_TIMER_STAGES.includes(newStatus)
+        ? new Date().toISOString()
+        : null,
+      updated_at: new Date().toISOString(),
+    };
 
-    // Require full payment before releasing
-    if (newStatus === "released" && order.payment_status !== "paid") {
-      return toast.error("Order must be fully paid before releasing");
-    }
-
-    // Keep overflow orders in pending/current stage when machine slots are full.
-    if (TIMED_STAGES.includes(newStatus)) {
-      const incoming = orders.filter((o) => o.id !== order.id);
-      const currentLoad = getStageLoad(newStatus, incoming);
-      const capacity = getStageCapacity(newStatus);
-      if (currentLoad >= capacity) {
-        if (order.status === "pending") {
-          return toast.error(
-            `${STATUS_LABELS[newStatus]} is full. Keep this order in Pending until a slot opens.`,
-          );
-        }
-        return toast.error(
-          `${STATUS_LABELS[newStatus]} is full. Please wait for an available machine.`,
-        );
-      }
-    }
-
-    const updates = { status: newStatus };
-    if (newStatus === "ready")
+    if (newStatus === "ready") {
       updates.actual_completion = new Date().toISOString();
+    }
+
+    if (newStatus === "released") {
+      updates.picked_up_at = new Date().toISOString();
+    }
 
     const { error } = await supabase
       .from("orders")
       .update(updates)
       .eq("id", order.id);
+
     if (error) return toast.error(error.message);
 
-    // Stage transitions: auto-start timer for wash/dry, require manual start for folding.
-    clearStageStart(order.id);
-    if (AUTO_TIMER_STAGES.includes(newStatus)) {
-      setStageStart(order.id);
-    }
-    toast.success(`Status -> ${STATUS_LABELS[newStatus]}`);
+    toast.success(`Status → ${STATUS_LABELS[newStatus]}`);
 
-    // Send email when manually moved to 'ready'
-    if (newStatus === "ready" && order.customers?.email) {
-      sendReadyEmail(order, order.customers.name, order.customers.email);
-    }
-
-    // Send SMS when moved to 'ready'
-    if (newStatus === "ready" && order.customers?.phone) {
-      sendReadySMS(
-        order.customers.phone,
-        order.order_number,
-        order.customers.name,
-      );
+    if (newStatus === "ready") {
+      if (order.customers?.email) {
+        sendReadyEmail(order, order.customers.name, order.customers.email);
+      }
+      if (order.customers?.phone) {
+        sendReadySMS(
+          order.customers.phone,
+          order.order_number,
+          order.customers.name,
+        );
+      }
     }
 
+    loadData();
+  }
+  async function startStageTimer(order) {
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        stage_started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order.id);
+
+    if (error) return toast.error(error.message);
+
+    toast.success(`Timer started for ${STATUS_LABELS[order.status]}`);
     loadData();
   }
 
@@ -787,38 +829,33 @@ export default function Orders() {
     loadData();
   }
 
-  function getTimeRemaining(estimatedCompletion, order) {
-    // For timed stages, show stage-specific countdown only if timer was started
-    if (order && TIMED_STAGES.includes(order.status)) {
-      if (!isTimerStarted(order.id)) return "Waiting start";
-      const stageDurations = getStageDurations(settings);
-      const duration = stageDurations[order.status];
-      const stageStart = getStageStart(order.id, null);
-      if (!stageStart) return "Waiting start";
-      const elapsed = Date.now() - stageStart;
-      const remaining = duration - elapsed;
-      if (remaining <= 0) return "Advancing...";
-      const mins = Math.floor(remaining / 60000);
-      const secs = Math.floor((remaining % 60000) / 1000);
-      if (mins > 0) return `${mins}m ${secs}s`;
-      return `${secs}s`;
-    }
-    // Use dynamic ETA instead of stored value
-    const dynamicETA = calculateDynamicETA(order, settings);
-    if (!dynamicETA) return null;
+  function getTimeRemaining(order, settings) {
+    if (!order.stage_started_at) return "Waiting start";
 
-    const diffMs = dynamicETA - new Date();
-    if (diffMs <= 0) return "Ready!";
-    const mins = Math.floor(diffMs / 60000);
-    const hrs = Math.floor(mins / 60);
-    const remainMins = mins % 60;
-    if (hrs > 0) return `${hrs}h ${remainMins}m`;
-    return `${remainMins}m`;
+    const stageStart = new Date(order.stage_started_at).getTime();
+    const now = Date.now();
+
+    const durations = {
+      washing: (Number(settings.etawash) || 45) * 60000,
+      drying: (Number(settings.etadrying) || 40) * 60000,
+      folding: (Number(settings.etafolding) || 15) * 60000,
+    };
+
+    const duration = durations[order.status];
+    if (!duration) return "";
+
+    const remaining = stageStart + duration - now;
+
+    if (remaining <= 0) return "Advancing...";
+
+    const minutes = Math.floor(remaining / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+
+    return `${minutes}m ${seconds}s`;
   }
 
   function toggleView(mode) {
     setViewMode(mode);
-    localStorage.setItem("4j_orders_view", mode);
   }
 
   function handleDragStart(e, order) {
@@ -955,10 +992,10 @@ export default function Orders() {
                     columnOrders.map((order) => {
                       const timerActive =
                         TIMED_STAGES.includes(order.status) &&
-                        isTimerStarted(order.id);
+                        !!order.stage_started_at;
                       const isQueued =
                         TIMED_STAGES.includes(order.status) &&
-                        !isTimerStarted(order.id);
+                        !order.stage_started_at;
                       return (
                         <div
                           key={order.id}
@@ -1000,10 +1037,7 @@ export default function Orders() {
                               {timerActive ? (
                                 <span className="timer-pill live">
                                   <Clock size={10} />{" "}
-                                  {getTimeRemaining(
-                                    order.estimated_completion,
-                                    order,
-                                  )}
+                                  {getTimeRemaining(order, settings)}
                                 </span>
                               ) : (
                                 <span className="timer-pill queued">
@@ -1015,11 +1049,11 @@ export default function Orders() {
                           <div className="kanban-card-actions">
                             {TIMED_STAGES.includes(order.status) &&
                               !AUTO_TIMER_STAGES.includes(order.status) &&
-                              !isTimerStarted(order.id) && (
+                              !order.stage_started_at && (
                                 <button
                                   className="btn-icon btn-start"
                                   title="Start timer"
-                                  onClick={() => startTimer(order.id)}
+                                  onClick={() => startStageTimer(order)}
                                 >
                                   <Play size={12} />
                                 </button>
@@ -1117,11 +1151,11 @@ export default function Orders() {
                             </span>
                             {TIMED_STAGES.includes(order.status) &&
                               !AUTO_TIMER_STAGES.includes(order.status) &&
-                              !isTimerStarted(order.id) && (
+                              !order.stage_started_at && (
                                 <button
                                   className="status-next-btn"
                                   style={{ background: "#16a34a" }}
-                                  onClick={() => startTimer(order.id)}
+                                  onClick={() => startStageTimer(order)}
                                   title="Start stage timer"
                                 >
                                   <Play size={14} />
@@ -1155,10 +1189,7 @@ export default function Orders() {
                             }}
                           >
                             <Clock size={14} />{" "}
-                            {getTimeRemaining(
-                              order.estimated_completion,
-                              order,
-                            ) || "\u2014"}
+                            {getTimeRemaining(order, settings) || "\u2014"}
                           </span>
                         )}
                       </td>

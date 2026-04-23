@@ -282,6 +282,15 @@ export default function LandingPage() {
   const [trackResults, setTrackResults] = useState(null);
   const [trackLoading, setTrackLoading] = useState(false);
   const [trackError, setTrackError] = useState("");
+  const [, setTicker] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTicker((t) => t + 1);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const TRACK_STAGES = [
     "pending",
@@ -324,6 +333,30 @@ export default function LandingPage() {
     ready: "Ready",
     released: "Released",
   };
+  function getTimeRemaining(order) {
+    if (!order.stage_started_at) return "Waiting start";
+
+    const stageStart = new Date(order.stage_started_at).getTime();
+    const now = Date.now();
+
+    const durations = {
+      washing: (Number(settings.etaWash) || 45) * 60000,
+      drying: (Number(settings.etaDrying) || 40) * 60000,
+      folding: (Number(settings.etaFolding) || 15) * 60000,
+    };
+
+    const duration = durations[order.status];
+    if (!duration) return "";
+
+    const remaining = stageStart + duration - now;
+
+    if (remaining <= 0) return "Finishing...";
+
+    const minutes = Math.floor(remaining / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+
+    return `${minutes}m ${seconds}s`;
+  }
 
   const handleTrack = async (e) => {
     if (e) e.preventDefault();
@@ -407,10 +440,14 @@ export default function LandingPage() {
   }, [trackResults !== null, trackOrderId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const stored = localStorage.getItem("4j_laundry_settings");
-    if (stored) setSettings(JSON.parse(stored));
-  }, []);
+    async function loadSettings() {
+      const { data } = await supabase.from("settings").select("*").single();
 
+      if (data) setSettings(data);
+    }
+
+    loadSettings();
+  }, []);
   useEffect(() => {
     const onScroll = () => {
       setScrolled(window.scrollY > 20);
@@ -777,6 +814,7 @@ ${formData.message}
                           {STAGE_LABELS[order.status] || order.status}
                         </strong>
                       </span>
+
                       <span>
                         Placed:{" "}
                         {new Date(order.created_at).toLocaleDateString(
@@ -788,6 +826,8 @@ ${formData.message}
                           },
                         )}
                       </span>
+
+                      {/* 📅 OVERALL ETA (OLD BEHAVIOR) */}
                       {etaData &&
                         !["ready", "released"].includes(order.status) && (
                           <>
@@ -802,6 +842,7 @@ ${formData.message}
                                 })}
                               </strong>
                             </span>
+
                             <span>
                               Est. finish in:{" "}
                               <strong>

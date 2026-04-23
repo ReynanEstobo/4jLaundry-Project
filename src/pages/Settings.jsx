@@ -1,140 +1,212 @@
-import { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
-import toast from 'react-hot-toast'
 import {
-  Lock, Eye, EyeOff, Moon, Sun, Clock, Store,
-  Save, Shield, Bell, Palette, DollarSign, Timer
-} from 'lucide-react'
-
-const SETTINGS_KEY = '4j_laundry_settings'
-
-function loadSettings() {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch { return {} }
-}
-
-function saveSettings(settings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
-}
+  Bell,
+  Clock,
+  DollarSign,
+  Eye,
+  EyeOff,
+  Lock,
+  Moon,
+  Palette,
+  Save,
+  Shield,
+  Store,
+  Sun,
+  Timer,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
+import { supabase } from "../lib/supabase";
 
 export default function Settings() {
-  const { user } = useAuth()
+  const { user } = useAuth();
 
   // Password change
-  const [currentPassword, setCurrentPassword] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [showCurrent, setShowCurrent] = useState(false)
-  const [showNew, setShowNew] = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [pwLoading, setPwLoading] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [pwLoading, setPwLoading] = useState(false);
 
   // Business settings
-  const stored = loadSettings()
-  const [shopName, setShopName] = useState(stored.shopName || '4J Laundry')
-  const [openTime, setOpenTime] = useState(stored.openTime || '08:00')
-  const [closeTime, setCloseTime] = useState(stored.closeTime || '20:00')
-  const [darkMode, setDarkMode] = useState(stored.darkMode || false)
-  const [notifications, setNotifications] = useState(stored.notifications !== false)
+  const [settings, setSettings] = useState(null);
+
+  const [shopName, setShopName] = useState("4J Laundry");
+  const [openTime, setOpenTime] = useState("08:00");
+  const [closeTime, setCloseTime] = useState("20:00");
+  const [darkMode, setDarkMode] = useState(false);
+  const [notifications, setNotifications] = useState(true);
 
   // Pricing settings
-  const [bundleKg, setBundleKg] = useState(stored.bundleKg || 8)
-  const [bundlePrice, setBundlePrice] = useState(stored.bundlePrice || 200)
-  const [addonPrice, setAddonPrice] = useState(stored.addonPrice || 15)
+  const [bundleKg, setBundleKg] = useState(8);
+  const [bundlePrice, setBundlePrice] = useState(200);
+  const [addonPrice, setAddonPrice] = useState(15);
 
-  // ETA settings (minutes)
-  const [etaWash, setEtaWash] = useState(stored.etaWash || 45)
-  const [etaDrying, setEtaDrying] = useState(stored.etaDrying || 40)
-  const [etaFolding, setEtaFolding] = useState(stored.etaFolding || 15)
+  // ETA settings
+  const [etaWash, setEtaWash] = useState(45);
+  const [etaDrying, setEtaDrying] = useState(40);
+  const [etaFolding, setEtaFolding] = useState(15);
+
+  useEffect(() => {
+    async function loadSettings() {
+      const { data, error } = await supabase
+        .from("settings")
+        .select("*")
+        .single();
+
+      if (!error && data) {
+        setSettings(data);
+
+        // populate UI fields
+        setShopName(data.shopname || "4J Laundry");
+        setOpenTime(data.opentime || "08:00");
+        setCloseTime(data.closetime || "20:00");
+        setDarkMode(data.darkmode || false);
+        setNotifications(data.notifications !== false);
+
+        setBundleKg(data.bundlekg || 8);
+        setBundlePrice(data.bundleprice || 200);
+        setAddonPrice(data.addonprice || 15);
+
+        setEtaWash(data.etawash || 45);
+        setEtaDrying(data.etadrying || 40);
+        setEtaFolding(data.etafolding || 15);
+      }
+    }
+
+    loadSettings();
+  }, []);
+  useEffect(() => {
+    const channel = supabase
+      .channel("settings-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "settings" },
+        async () => {
+          const { data } = await supabase.from("settings").select("*").single();
+
+          if (data) {
+            setSettings(data);
+
+            setShopName(data.shopname || "4J Laundry");
+            setOpenTime(data.opentime || "08:00");
+            setCloseTime(data.closetime || "20:00");
+            setDarkMode(data.darkmode || false);
+            setNotifications(data.notifications !== false);
+
+            setBundleKg(data.bundlekg || 8);
+            setBundlePrice(data.bundleprice || 200);
+            setAddonPrice(data.addonprice || 15);
+
+            setEtaWash(data.etawash || 45);
+            setEtaDrying(data.etadrying || 40);
+            setEtaFolding(data.etafolding || 15);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, []);
 
   // Apply dark mode on mount and changes
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light')
-  }, [darkMode])
+    document.documentElement.setAttribute(
+      "data-theme",
+      darkMode ? "dark" : "light",
+    );
+  }, [darkMode]);
 
   const handlePasswordChange = async (e) => {
-    e.preventDefault()
+    e.preventDefault();
     if (newPassword.length < 6) {
-      toast.error('New password must be at least 6 characters')
-      return
+      toast.error("New password must be at least 6 characters");
+      return;
     }
     if (newPassword !== confirmPassword) {
-      toast.error('Passwords do not match')
-      return
+      toast.error("Passwords do not match");
+      return;
     }
 
-    setPwLoading(true)
+    setPwLoading(true);
     try {
       // Re-authenticate with current password
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: user.email,
         password: currentPassword,
-      })
+      });
       if (signInError) {
-        toast.error('Current password is incorrect')
-        setPwLoading(false)
-        return
+        toast.error("Current password is incorrect");
+        setPwLoading(false);
+        return;
       }
 
-      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
       if (error) {
-        toast.error(error.message)
+        toast.error(error.message);
       } else {
-        toast.success('Password updated successfully')
-        setCurrentPassword('')
-        setNewPassword('')
-        setConfirmPassword('')
+        toast.success("Password updated successfully");
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
       }
     } catch (err) {
-      toast.error('Failed to update password')
+      toast.error("Failed to update password");
     }
-    setPwLoading(false)
-  }
+    setPwLoading(false);
+  };
 
-  const handleSaveBusinessSettings = () => {
-    const settings = {
-      shopName, openTime, closeTime, darkMode, notifications,
-      bundleKg: Number(bundleKg), bundlePrice: Number(bundlePrice), addonPrice: Number(addonPrice),
-      etaWash: Number(etaWash), etaDrying: Number(etaDrying), etaFolding: Number(etaFolding)
+  const handleSaveBusinessSettings = async () => {
+    if (!settings?.id) return;
+
+    const { error } = await supabase
+      .from("settings")
+      .update({
+        shopname: shopName,
+        opentime: openTime,
+        closetime: closeTime,
+        darkmode: darkMode,
+        notifications,
+        bundlekg: Number(bundleKg),
+        bundleprice: Number(bundlePrice),
+        addonprice: Number(addonPrice),
+        etawash: Number(etaWash),
+        etadrying: Number(etaDrying),
+        etafolding: Number(etaFolding),
+      })
+      .eq("id", settings.id);
+
+    if (error) {
+      toast.error("Failed to save settings");
+    } else {
+      toast.success("Settings updated!");
     }
-    saveSettings(settings)
-    toast.success('Settings saved successfully')
-  }
+  };
 
   const handleDarkModeToggle = () => {
-    const next = !darkMode
-    setDarkMode(next)
-    const settings = {
-      shopName, openTime, closeTime, darkMode: next, notifications,
-      bundleKg: Number(bundleKg), bundlePrice: Number(bundlePrice), addonPrice: Number(addonPrice),
-      etaWash: Number(etaWash), etaDrying: Number(etaDrying), etaFolding: Number(etaFolding)
-    }
-    saveSettings(settings)
-  }
+    const next = !darkMode;
+    setDarkMode(next);
+  };
 
   const handleNotificationsToggle = () => {
-    const next = !notifications
-    setNotifications(next)
-    const settings = {
-      shopName, openTime, closeTime, darkMode, notifications: next,
-      bundleKg: Number(bundleKg), bundlePrice: Number(bundlePrice), addonPrice: Number(addonPrice),
-      etaWash: Number(etaWash), etaDrying: Number(etaDrying), etaFolding: Number(etaFolding)
-    }
-    saveSettings(settings)
-  }
+    const next = !notifications;
+    setNotifications(next);
+  };
 
   // Format time for display
   const formatTime = (t) => {
-    const [h, m] = t.split(':')
-    const hour = parseInt(h)
-    const ampm = hour >= 12 ? 'PM' : 'AM'
-    const h12 = hour % 12 || 12
-    return `${h12}:${m} ${ampm}`
-  }
+    const [h, m] = t.split(":");
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const h12 = hour % 12 || 12;
+    return `${h12}:${m} ${ampm}`;
+  };
 
+  if (!settings) return null;
   return (
     <div className="settings-page">
       <div className="settings-grid">
@@ -165,10 +237,10 @@ export default function Settings() {
                 <Lock size={16} className="settings-input-icon" />
                 <input
                   className="form-control"
-                  type={showCurrent ? 'text' : 'password'}
+                  type={showCurrent ? "text" : "password"}
                   placeholder="Enter current password"
                   value={currentPassword}
-                  onChange={e => setCurrentPassword(e.target.value)}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
                   required
                   style={{ paddingLeft: 38, paddingRight: 38 }}
                 />
@@ -188,10 +260,10 @@ export default function Settings() {
                   <Lock size={16} className="settings-input-icon" />
                   <input
                     className="form-control"
-                    type={showNew ? 'text' : 'password'}
+                    type={showNew ? "text" : "password"}
                     placeholder="Min 6 characters"
                     value={newPassword}
-                    onChange={e => setNewPassword(e.target.value)}
+                    onChange={(e) => setNewPassword(e.target.value)}
                     required
                     style={{ paddingLeft: 38, paddingRight: 38 }}
                   />
@@ -210,10 +282,10 @@ export default function Settings() {
                   <Lock size={16} className="settings-input-icon" />
                   <input
                     className="form-control"
-                    type={showConfirm ? 'text' : 'password'}
+                    type={showConfirm ? "text" : "password"}
                     placeholder="Re-enter new password"
                     value={confirmPassword}
-                    onChange={e => setConfirmPassword(e.target.value)}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
                     required
                     style={{ paddingLeft: 38, paddingRight: 38 }}
                   />
@@ -227,11 +299,23 @@ export default function Settings() {
                 </div>
               </div>
             </div>
-            <button className="btn btn-primary" type="submit" disabled={pwLoading}>
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={pwLoading}
+            >
               {pwLoading ? (
-                <><div className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Updating...</>
+                <>
+                  <div
+                    className="spinner"
+                    style={{ width: 16, height: 16, borderWidth: 2 }}
+                  />{" "}
+                  Updating...
+                </>
               ) : (
-                <><Lock size={15} /> Update Password</>
+                <>
+                  <Lock size={15} /> Update Password
+                </>
               )}
             </button>
           </form>
@@ -256,11 +340,13 @@ export default function Settings() {
               </div>
               <div>
                 <span className="settings-toggle-label">Dark Mode</span>
-                <span className="settings-toggle-desc">Switch between light and dark theme</span>
+                <span className="settings-toggle-desc">
+                  Switch between light and dark theme
+                </span>
               </div>
             </div>
             <button
-              className={`settings-toggle ${darkMode ? 'active' : ''}`}
+              className={`settings-toggle ${darkMode ? "active" : ""}`}
               onClick={handleDarkModeToggle}
             >
               <div className="settings-toggle-knob" />
@@ -274,11 +360,13 @@ export default function Settings() {
               </div>
               <div>
                 <span className="settings-toggle-label">Notifications</span>
-                <span className="settings-toggle-desc">Show toast notifications for actions</span>
+                <span className="settings-toggle-desc">
+                  Show toast notifications for actions
+                </span>
               </div>
             </div>
             <button
-              className={`settings-toggle ${notifications ? 'active' : ''}`}
+              className={`settings-toggle ${notifications ? "active" : ""}`}
               onClick={handleNotificationsToggle}
             >
               <div className="settings-toggle-knob" />
@@ -307,7 +395,7 @@ export default function Settings() {
                   className="form-control"
                   type="text"
                   value={shopName}
-                  onChange={e => setShopName(e.target.value)}
+                  onChange={(e) => setShopName(e.target.value)}
                   placeholder="Enter shop name"
                   style={{ paddingLeft: 38 }}
                 />
@@ -324,11 +412,13 @@ export default function Settings() {
                   className="form-control"
                   type="time"
                   value={openTime}
-                  onChange={e => setOpenTime(e.target.value)}
+                  onChange={(e) => setOpenTime(e.target.value)}
                   style={{ paddingLeft: 38 }}
                 />
               </div>
-              <span className="settings-time-display">{formatTime(openTime)}</span>
+              <span className="settings-time-display">
+                {formatTime(openTime)}
+              </span>
             </div>
 
             <div className="form-group">
@@ -339,20 +429,31 @@ export default function Settings() {
                   className="form-control"
                   type="time"
                   value={closeTime}
-                  onChange={e => setCloseTime(e.target.value)}
+                  onChange={(e) => setCloseTime(e.target.value)}
                   style={{ paddingLeft: 38 }}
                 />
               </div>
-              <span className="settings-time-display">{formatTime(closeTime)}</span>
+              <span className="settings-time-display">
+                {formatTime(closeTime)}
+              </span>
             </div>
           </div>
 
           <div className="settings-hours-preview">
             <Clock size={16} />
-            <span>Operating Hours: <strong>{formatTime(openTime)} — {formatTime(closeTime)}</strong></span>
+            <span>
+              Operating Hours:{" "}
+              <strong>
+                {formatTime(openTime)} — {formatTime(closeTime)}
+              </strong>
+            </span>
           </div>
 
-          <button className="btn btn-primary" onClick={handleSaveBusinessSettings} style={{ marginTop: 8 }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveBusinessSettings}
+            style={{ marginTop: 8 }}
+          >
             <Save size={15} /> Save Business Settings
           </button>
         </div>
@@ -374,15 +475,31 @@ export default function Settings() {
             <div className="form-row">
               <div className="form-group">
                 <label>Bundle Size (kg)</label>
-                <input className="form-control" type="number" min="1" step="1" value={bundleKg} onChange={e => setBundleKg(e.target.value)} />
+                <input
+                  className="form-control"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={bundleKg}
+                  onChange={(e) => setBundleKg(e.target.value)}
+                />
               </div>
               <div className="form-group">
                 <label>Price per Bundle (₱)</label>
-                <input className="form-control" type="number" min="0" step="1" value={bundlePrice} onChange={e => setBundlePrice(e.target.value)} />
+                <input
+                  className="form-control"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={bundlePrice}
+                  onChange={(e) => setBundlePrice(e.target.value)}
+                />
               </div>
             </div>
             <div className="settings-pricing-preview">
-              <span>₱{Number(bundlePrice).toLocaleString()} per {bundleKg}kg load</span>
+              <span>
+                ₱{Number(bundlePrice).toLocaleString()} per {bundleKg}kg load
+              </span>
             </div>
           </div>
 
@@ -392,14 +509,28 @@ export default function Settings() {
             <h4 className="settings-subtitle">Add-ons (Soap / Detergent)</h4>
             <div className="form-group">
               <label>Price per Add-on Item (₱)</label>
-              <input className="form-control" type="number" min="0" step="1" value={addonPrice} onChange={e => setAddonPrice(e.target.value)} />
+              <input
+                className="form-control"
+                type="number"
+                min="0"
+                step="1"
+                value={addonPrice}
+                onChange={(e) => setAddonPrice(e.target.value)}
+              />
             </div>
             <div className="settings-pricing-preview">
-              <span>₱{Number(addonPrice).toLocaleString()} per soap / detergent add-on</span>
+              <span>
+                ₱{Number(addonPrice).toLocaleString()} per soap / detergent
+                add-on
+              </span>
             </div>
           </div>
 
-          <button className="btn btn-primary" onClick={handleSaveBusinessSettings} style={{ marginTop: 12 }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveBusinessSettings}
+            style={{ marginTop: 12 }}
+          >
             <Save size={15} /> Save Pricing
           </button>
         </div>
@@ -423,7 +554,13 @@ export default function Settings() {
                 <span>Washing</span>
               </div>
               <div className="settings-eta-input">
-                <input className="form-control" type="number" min="1" value={etaWash} onChange={e => setEtaWash(e.target.value)} />
+                <input
+                  className="form-control"
+                  type="number"
+                  min="1"
+                  value={etaWash}
+                  onChange={(e) => setEtaWash(e.target.value)}
+                />
                 <span className="settings-eta-unit">min</span>
               </div>
             </div>
@@ -433,7 +570,13 @@ export default function Settings() {
                 <span>Drying</span>
               </div>
               <div className="settings-eta-input">
-                <input className="form-control" type="number" min="1" value={etaDrying} onChange={e => setEtaDrying(e.target.value)} />
+                <input
+                  className="form-control"
+                  type="number"
+                  min="1"
+                  value={etaDrying}
+                  onChange={(e) => setEtaDrying(e.target.value)}
+                />
                 <span className="settings-eta-unit">min</span>
               </div>
             </div>
@@ -443,21 +586,36 @@ export default function Settings() {
                 <span>Folding</span>
               </div>
               <div className="settings-eta-input">
-                <input className="form-control" type="number" min="1" value={etaFolding} onChange={e => setEtaFolding(e.target.value)} />
+                <input
+                  className="form-control"
+                  type="number"
+                  min="1"
+                  value={etaFolding}
+                  onChange={(e) => setEtaFolding(e.target.value)}
+                />
                 <span className="settings-eta-unit">min</span>
               </div>
             </div>
           </div>
 
           <div className="settings-pricing-preview" style={{ marginTop: 12 }}>
-            <span>Total ETA: <strong>~{Number(etaWash) + Number(etaDrying) + Number(etaFolding)} min</strong></span>
+            <span>
+              Total ETA:{" "}
+              <strong>
+                ~{Number(etaWash) + Number(etaDrying) + Number(etaFolding)} min
+              </strong>
+            </span>
           </div>
 
-          <button className="btn btn-primary" onClick={handleSaveBusinessSettings} style={{ marginTop: 12 }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveBusinessSettings}
+            style={{ marginTop: 12 }}
+          >
             <Save size={15} /> Save ETA Settings
           </button>
         </div>
       </div>
     </div>
-  )
+  );
 }
