@@ -43,6 +43,8 @@ export default function Settings() {
   const [bundleKg, setBundleKg] = useState(8);
   const [bundlePrice, setBundlePrice] = useState(200);
   const [addonPrice, setAddonPrice] = useState(15);
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [defaultUsage, setDefaultUsage] = useState({});
 
   // ETA settings
   const [etaWash, setEtaWash] = useState(45);
@@ -59,7 +61,6 @@ export default function Settings() {
       if (!error && data) {
         setSettings(data);
 
-        // populate UI fields
         setShopName(data.shopname || "4J Laundry");
         setOpenTime(data.opentime || "08:00");
         setCloseTime(data.closetime || "20:00");
@@ -73,6 +74,18 @@ export default function Settings() {
         setEtaWash(data.etawash || 45);
         setEtaDrying(data.etadrying || 40);
         setEtaFolding(data.etafolding || 15);
+
+        // ✅ ADD THIS PART
+        setDefaultUsage(data.default_item_usage || {});
+      }
+
+      // ✅ STEP 2 — ADD THIS BELOW
+      const { data: items, error: itemsError } = await supabase
+        .from("inventory_items")
+        .select("id, name, current_stock");
+
+      if (!itemsError && items) {
+        setInventoryItems(items);
       }
     }
 
@@ -167,6 +180,7 @@ export default function Settings() {
       .from("settings")
       .update({
         shopname: shopName,
+
         opentime: openTime,
         closetime: closeTime,
         darkmode: darkMode,
@@ -174,6 +188,9 @@ export default function Settings() {
         bundlekg: Number(bundleKg),
         bundleprice: Number(bundlePrice),
         addonprice: Number(addonPrice),
+
+        default_item_usage: defaultUsage,
+        
         etawash: Number(etaWash),
         etadrying: Number(etaDrying),
         etafolding: Number(etaFolding),
@@ -506,26 +523,62 @@ export default function Settings() {
           <div className="settings-divider" />
 
           <div className="settings-pricing-group">
-            <h4 className="settings-subtitle">Add-ons (Soap / Detergent)</h4>
-            <div className="form-group">
-              <label>Price per Add-on Item (₱)</label>
-              <input
-                className="form-control"
-                type="number"
-                min="0"
-                step="1"
-                value={addonPrice}
-                onChange={(e) => setAddonPrice(e.target.value)}
-              />
-            </div>
-            <div className="settings-pricing-preview">
-              <span>
-                ₱{Number(addonPrice).toLocaleString()} per soap / detergent
-                add-on
-              </span>
+            <h4 className="settings-subtitle">
+              Default Inventory Usage (Per Garment)
+            </h4>
+
+            <div className="addon-grid">
+              {inventoryItems.map((item) => {
+                const qty = defaultUsage[item.id] || 0;
+
+                return (
+                  <div key={item.id} className="addon-item">
+                    <div className="addon-info">
+                      <span className="addon-name">{item.name}</span>
+                      <span className="addon-stock">
+                        {item.current_stock} in stock
+                      </span>
+                    </div>
+
+                    <div className="addon-qty">
+                      {qty > 0 && (
+                        <button
+                          type="button"
+                          className="addon-btn"
+                          onClick={() =>
+                            setDefaultUsage((prev) => {
+                              const copy = { ...prev };
+                              const newQty = (copy[item.id] || 0) - 1;
+                              if (newQty <= 0) delete copy[item.id];
+                              else copy[item.id] = newQty;
+                              return copy;
+                            })
+                          }
+                        >
+                          -
+                        </button>
+                      )}
+
+                      {qty > 0 && <span className="addon-count">{qty}</span>}
+
+                      <button
+                        type="button"
+                        className="addon-btn addon-btn-add"
+                        onClick={() =>
+                          setDefaultUsage((prev) => ({
+                            ...prev,
+                            [item.id]: (prev[item.id] || 0) + 1,
+                          }))
+                        }
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-
           <button
             className="btn btn-primary"
             onClick={handleSaveBusinessSettings}

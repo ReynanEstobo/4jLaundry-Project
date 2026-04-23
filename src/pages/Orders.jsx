@@ -709,25 +709,56 @@ export default function Orders() {
     }
 
     // Deduct add-on items from inventory on new orders only
-    if (!editing && orderData && addonEntries.length > 0) {
-      const promises = addonEntries.flatMap(([itemId, qty]) => {
-        const item = soapItems.find((i) => i.id === itemId);
-        const newStock = Math.max(0, Number(item.current_stock) - qty);
-        return [
-          supabase
-            .from("inventory_items")
-            .update({ current_stock: newStock })
-            .eq("id", itemId),
-          supabase.from("inventory_usage_log").insert({
-            item_id: itemId,
-            quantity_used: qty,
-            order_id: orderData.id,
-          }),
-        ];
+    // ✅ AUTO DEFAULT INVENTORY USAGE (per garment)
+
+    // ✅ COMBINED INVENTORY DEDUCTION (default + add-ons)
+    if (!editing && orderData) {
+      const usageMap = {};
+
+      // 🔹 1. DEFAULT USAGE
+      if (settings.default_item_usage) {
+        Object.entries(settings.default_item_usage).forEach(([itemId, qty]) => {
+          usageMap[itemId] = (usageMap[itemId] || 0) + Number(qty);
+        });
+      }
+
+      // 🔹 2. ADD-ONS
+      addonEntries.forEach(([itemId, qty]) => {
+        usageMap[itemId] = (usageMap[itemId] || 0) + Number(qty);
       });
+
+      const promises = Object.entries(usageMap).flatMap(
+        ([itemId, totalQty]) => {
+          const item = soapItems.find((i) => String(i.id) === String(itemId));
+
+          if (!item) return [];
+
+          // 🚫 Prevent negative stock
+          if (item.current_stock < totalQty) {
+            toast.error(`${item.name} has insufficient stock`);
+            return [];
+          }
+
+          const newStock = item.current_stock - totalQty;
+
+          return [
+            supabase
+              .from("inventory_items")
+              .update({ current_stock: newStock })
+              .eq("id", itemId),
+
+            supabase.from("inventory_usage_log").insert({
+              item_id: itemId,
+              quantity_used: totalQty,
+              order_id: orderData.id,
+              note: "Auto deduction (default + add-ons)",
+            }),
+          ];
+        },
+      );
+
       await Promise.all(promises);
     }
-
     // Send order received email for new orders
     if (
       !editing &&
