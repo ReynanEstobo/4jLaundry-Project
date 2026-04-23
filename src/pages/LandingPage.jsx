@@ -2,6 +2,7 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronRight,
+  ChevronUp,
   Circle,
   Clock,
   Loader2,
@@ -14,8 +15,9 @@ import {
   Shield,
   Sparkles,
   Star,
+  X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
@@ -64,8 +66,203 @@ function AnimatedCounter({ end, suffix = "", duration = 2000 }) {
   );
 }
 
+/* ─── Modern Toast Component ─────────────────────────────────────────── */
+function Toast({ show, type, message, onClose }) {
+  const isSuccess = type === "success";
+
+  const styles = {
+    wrapper: {
+      position: "fixed",
+      top: "24px",
+      right: "24px",
+      zIndex: 9999,
+      display: "flex",
+      flexDirection: "column",
+      gap: "10px",
+      pointerEvents: show ? "auto" : "none",
+    },
+    toast: {
+      display: "flex",
+      alignItems: "flex-start",
+      gap: "12px",
+      padding: "14px 16px",
+      borderRadius: "14px",
+      background: "rgba(15, 15, 20, 0.82)",
+      backdropFilter: "blur(20px)",
+      WebkitBackdropFilter: "blur(20px)",
+      border: `1px solid ${isSuccess ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
+      boxShadow: `0 8px 32px rgba(0,0,0,0.35), 0 0 0 1px ${isSuccess ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)"}`,
+      minWidth: "300px",
+      maxWidth: "380px",
+      transform: show
+        ? "translateX(0) scale(1)"
+        : "translateX(calc(100% + 32px)) scale(0.96)",
+      opacity: show ? 1 : 0,
+      transition:
+        "transform 0.38s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.28s ease",
+      overflow: "hidden",
+      position: "relative",
+    },
+    iconWrap: {
+      flexShrink: 0,
+      width: "34px",
+      height: "34px",
+      borderRadius: "50%",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: isSuccess
+        ? "rgba(52,211,153,0.15)"
+        : "rgba(248,113,113,0.15)",
+      color: isSuccess ? "#34d399" : "#f87171",
+      marginTop: "1px",
+    },
+    content: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      gap: "2px",
+    },
+    label: {
+      fontSize: "11px",
+      fontWeight: 600,
+      letterSpacing: "0.08em",
+      textTransform: "uppercase",
+      color: isSuccess ? "#34d399" : "#f87171",
+    },
+    message: {
+      fontSize: "13.5px",
+      color: "rgba(255,255,255,0.88)",
+      lineHeight: 1.45,
+    },
+    closeBtn: {
+      flexShrink: 0,
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      color: "rgba(255,255,255,0.35)",
+      padding: "2px",
+      borderRadius: "6px",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      transition: "color 0.15s, background 0.15s",
+      lineHeight: 1,
+    },
+    progressBar: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      height: "2px",
+      background: isSuccess
+        ? "linear-gradient(90deg, #34d399, #6ee7b7)"
+        : "linear-gradient(90deg, #f87171, #fca5a5)",
+      borderRadius: "0 0 14px 14px",
+      animation: show ? "toastProgress 3s linear forwards" : "none",
+    },
+  };
+
+  return (
+    <>
+      <style>{`
+        @keyframes toastProgress {
+          from { width: 100%; }
+          to   { width: 0%; }
+        }
+        .toast-close-btn:hover {
+          color: rgba(255,255,255,0.75) !important;
+          background: rgba(255,255,255,0.08) !important;
+        }
+      `}</style>
+      <div style={styles.wrapper}>
+        <div style={styles.toast} role="alert" aria-live="polite">
+          <div style={styles.iconWrap}>
+            {isSuccess ? (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M3 8.5l3.5 3.5 6.5-7"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M8 5v4M8 11.5v.5"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="6.5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+              </svg>
+            )}
+          </div>
+          <div style={styles.content}>
+            <span style={styles.label}>{isSuccess ? "Success" : "Error"}</span>
+            <span style={styles.message}>{message}</span>
+          </div>
+          <button
+            style={styles.closeBtn}
+            className="toast-close-btn"
+            onClick={onClose}
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+          <div style={styles.progressBar} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ─── Spinner SVG ─────────────────────────────────────────────────────── */
+function Spinner({ size = 16 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      style={{ animation: "spin 0.7s linear infinite", flexShrink: 0 }}
+    >
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeOpacity="0.25"
+      />
+      <path
+        d="M12 2a10 10 0 0 1 10 10"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export default function LandingPage() {
   const navigate = useNavigate();
+  const [showTopBtn, setShowTopBtn] = useState(false);
+
+  const [notification, setNotification] = useState({
+    show: false,
+    type: "",
+    message: "",
+  });
+  const [sending, setSending] = useState(false);
   const [settings, setSettings] = useState({});
   const [formData, setFormData] = useState({
     name: "",
@@ -106,28 +303,19 @@ export default function LandingPage() {
   function calculateETA(order) {
     const durations = getStageDurations();
     const stages = ["pending", "washing", "drying", "folding", "ready"];
-
     const currentIndex = stages.indexOf(order.status);
     if (currentIndex === -1 || order.status === "released") return null;
-
     let remainingMinutes = 0;
-
     for (let i = currentIndex; i < stages.length; i++) {
       remainingMinutes += durations[stages[i]] || 0;
     }
-
-    // optional: weight factor
     if (order.weight_kg) {
       remainingMinutes += order.weight_kg * 3;
     }
-
     const eta = new Date(Date.now() + remainingMinutes * 60000);
-
-    return {
-      eta,
-      remainingMinutes,
-    };
+    return { eta, remainingMinutes };
   }
+
   const STAGE_LABELS = {
     pending: "Pending",
     washing: "Wash",
@@ -202,10 +390,7 @@ export default function LandingPage() {
         });
     };
 
-    // Poll every 5 seconds as reliable fallback
     const interval = setInterval(refetch, 5000);
-
-    // Also subscribe to realtime for instant updates when available
     const channel = supabase
       .channel("track-orders-realtime-" + Date.now())
       .on(
@@ -220,14 +405,18 @@ export default function LandingPage() {
       supabase.removeChannel(channel);
     };
   }, [trackResults !== null, trackOrderId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const stored = localStorage.getItem("4j_laundry_settings");
-    if (stored) {
-      setSettings(JSON.parse(stored));
-    }
+    if (stored) setSettings(JSON.parse(stored));
   }, []);
+
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
+    const onScroll = () => {
+      setScrolled(window.scrollY > 20);
+      setShowTopBtn(window.scrollY > 50); // 👈 show button after scroll
+    };
+
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
@@ -235,19 +424,91 @@ export default function LandingPage() {
   const handleChange = (e) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setFormData({ name: "", email: "", phone: "", address: "", message: "" });
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const scrollToSection = useCallback((e, id) => {
+  const scrollToSection = (e, id) => {
     e.preventDefault();
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
+
+  /* ── dismiss helper so the close button and auto-dismiss share one path */
+  const dismissToast = () =>
+    setNotification({ show: false, type: "", message: "" });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSending(true);
+
+    try {
+      const API_URL = import.meta.env.DEV
+        ? "https://4jlaundry-project.pages.dev/api/send-email"
+        : "/api/send-email";
+
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: "shopjlaundry7@gmail.com",
+          subject: "New Contact Message - 4J Laundry",
+          body: `
+Name: ${formData.name}
+Email: ${formData.email}
+Phone: ${formData.phone}
+Address: ${formData.address}
+
+Message:
+${formData.message}
+          `,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setNotification({
+          show: true,
+          type: "success",
+          message: "Your message was sent! We'll get back to you soon.",
+        });
+        setFormData({
+          name: "",
+          email: "",
+          phone: "",
+          address: "",
+          message: "",
+        });
+      } else {
+        setNotification({
+          show: true,
+          type: "error",
+          message: "Failed to send message. Please try again.",
+        });
+      }
+    } catch (err) {
+      setNotification({
+        show: true,
+        type: "error",
+        message: "Something went wrong. Please try again.",
+      });
+    } finally {
+      setSending(false);
+      setTimeout(dismissToast, 3000);
+    }
+  };
 
   return (
     <div className="landing-page">
+      {/* ── Modern Toast ── */}
+      <Toast
+        show={notification.show}
+        type={notification.type}
+        message={notification.message}
+        onClose={dismissToast}
+      />
+
       {/* NAVBAR */}
       <nav className={`landing-nav ${scrolled ? "landing-nav-scrolled" : ""}`}>
         <div className="landing-container landing-nav-inner">
@@ -285,7 +546,6 @@ export default function LandingPage() {
 
       {/* HERO SECTION */}
       <section className="landing-hero" id="home">
-        {/* Decorative Elements */}
         <div className="hero-decoration hero-decoration-1" />
         <div className="hero-decoration hero-decoration-2" />
         <div className="hero-decoration hero-decoration-3" />
@@ -304,10 +564,8 @@ export default function LandingPage() {
               <span className="text-highlight">4J Laundry</span> Service
             </h1>
             <p>
-              With over 3 years of experience, 4J Laundry has been dedicated to
-              providing exceptional laundry services to our community. We take
-              pride in delivering fresh, clean, and perfectly folded garments
-              every time.
+              We provide reliable, high-quality laundry and garment care
+              services. Fresh, clean, and perfectly folded every time.
             </p>
             <div className="landing-hero-buttons">
               <button
@@ -324,22 +582,6 @@ export default function LandingPage() {
                 Track Garment
               </button>
             </div>
-            <div className="landing-hero-stats">
-              <div className="landing-stat">
-                <AnimatedCounter end={3} suffix="+" />
-                <span>Years Experience</span>
-              </div>
-              <div className="landing-stat-divider" />
-              <div className="landing-stat">
-                <AnimatedCounter end={1000} suffix="+" />
-                <span>Happy Customers</span>
-              </div>
-              <div className="landing-stat-divider" />
-              <div className="landing-stat">
-                <AnimatedCounter end={100} suffix="%" />
-                <span>Satisfaction</span>
-              </div>
-            </div>
           </div>
           <div
             className={`landing-hero-image ${heroVisible ? "animate-in-right" : ""}`}
@@ -347,7 +589,6 @@ export default function LandingPage() {
             <div className="landing-hero-image-bg" />
             <div className="landing-hero-image-ring" />
             <img src="/assets/image%2046.png" alt="4J Laundry Service" />
-            {/* Floating badges */}
             <div className="hero-float-badge hero-float-badge-1">
               <Star size={16} />
               <span>Top Rated</span>
@@ -536,7 +777,6 @@ export default function LandingPage() {
                           {STAGE_LABELS[order.status] || order.status}
                         </strong>
                       </span>
-
                       <span>
                         Placed:{" "}
                         {new Date(order.created_at).toLocaleDateString(
@@ -548,7 +788,6 @@ export default function LandingPage() {
                           },
                         )}
                       </span>
-
                       {etaData &&
                         !["ready", "released"].includes(order.status) && (
                           <>
@@ -563,7 +802,6 @@ export default function LandingPage() {
                                 })}
                               </strong>
                             </span>
-
                             <span>
                               Est. finish in:{" "}
                               <strong>
@@ -588,7 +826,7 @@ export default function LandingPage() {
             className={`landing-section-header ${contactVisible ? "animate-in" : ""}`}
           >
             <span className="landing-section-tag">Get In Touch</span>
-            <h2>Let's Talk With Us</h2>
+            <h2>Reach Out to Us</h2>
             <p>Have questions? We'd love to hear from you.</p>
           </div>
           <div
@@ -615,7 +853,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <strong>Email</strong>
-                    <span>jadiedacillo2@gmail.com</span>
+                    <span>shopjlaundry7@gmail.com</span>
                   </div>
                 </div>
                 <div className="landing-contact-item">
@@ -629,6 +867,7 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
+
             <form className="landing-contact-form" onSubmit={handleSubmit}>
               <div className="landing-form-row">
                 <div className="landing-form-group">
@@ -640,6 +879,7 @@ export default function LandingPage() {
                     value={formData.name}
                     onChange={handleChange}
                     required
+                    disabled={sending}
                   />
                 </div>
                 <div className="landing-form-group">
@@ -651,6 +891,7 @@ export default function LandingPage() {
                     value={formData.email}
                     onChange={handleChange}
                     required
+                    disabled={sending}
                   />
                 </div>
               </div>
@@ -663,6 +904,7 @@ export default function LandingPage() {
                     placeholder="Your Phone"
                     value={formData.phone}
                     onChange={handleChange}
+                    disabled={sending}
                   />
                 </div>
                 <div className="landing-form-group">
@@ -673,6 +915,7 @@ export default function LandingPage() {
                     placeholder="Your Address"
                     value={formData.address}
                     onChange={handleChange}
+                    disabled={sending}
                   />
                 </div>
               </div>
@@ -685,14 +928,32 @@ export default function LandingPage() {
                   value={formData.message}
                   onChange={handleChange}
                   required
+                  disabled={sending}
                 />
               </div>
+
+              {/* ── Submit button with loading state ── */}
               <button
                 type="submit"
                 className="landing-btn-primary landing-btn-glow"
+                disabled={sending}
+                style={{
+                  opacity: sending ? 0.75 : 1,
+                  cursor: sending ? "not-allowed" : "pointer",
+                  transition: "opacity 0.2s",
+                }}
               >
-                <Send size={16} />
-                Send Message
+                {sending ? (
+                  <>
+                    <Spinner size={16} />
+                    Sending…
+                  </>
+                ) : (
+                  <>
+                    <Send size={16} />
+                    Send Message
+                  </>
+                )}
               </button>
             </form>
           </div>
@@ -729,7 +990,7 @@ export default function LandingPage() {
               </div>
               <div className="landing-footer-contact-item">
                 <Mail size={18} />
-                <span>jadiedacillo21@gmail.com</span>
+                <span>shopjlaundry7@gmail.com</span>
               </div>
               <div className="landing-footer-contact-item">
                 <MapPin size={18} />
@@ -747,6 +1008,12 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+      {/* 🔝 Back to Top Button */}
+      {showTopBtn && (
+        <button className="back-to-top" onClick={scrollToTop}>
+          <ChevronUp size={18} />
+        </button>
+      )}
     </div>
   );
 }
