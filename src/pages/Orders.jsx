@@ -1,19 +1,19 @@
 import { format } from "date-fns";
 import {
-    ArrowRight,
-    CheckCircle2,
-    Clock,
-    Edit2,
-    LayoutGrid,
-    List,
-    Mail,
-    Minus,
-    Play,
-    Plus,
-    Search,
-    Trash2,
-    User,
-    X,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  Edit2,
+  LayoutGrid,
+  List,
+  Mail,
+  Minus,
+  Play,
+  Plus,
+  Search,
+  Trash2,
+  User,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
@@ -193,6 +193,10 @@ async function sendOrderReceivedEmail(
 }
 
 export default function Orders() {
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("cash");
   const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [soapItems, setSoapItems] = useState([]);
@@ -760,7 +764,74 @@ export default function Orders() {
     loadData();
   }
 
+  async function completePaymentAndRelease() {
+    if (!selectedOrder) return;
+
+    const total = Number(selectedOrder.total_price) || 0;
+
+    // ✅ same fallback logic
+    const paid =
+      Number(selectedOrder.amount_paid) ||
+      (selectedOrder.payment_status === "partial"
+        ? total * 0.5
+        : selectedOrder.payment_status === "paid"
+          ? total
+          : 0);
+
+    const pay = Number(paymentAmount) || 0;
+
+    if (pay <= 0) return toast.error("Enter valid amount");
+
+    const newTotalPaid = paid + pay;
+
+    if (newTotalPaid < total) {
+      return toast.error("Full payment required before release");
+    }
+
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        amount_paid: newTotalPaid,
+        payment_status: "paid",
+        payment_method: paymentMethod,
+        status: "released",
+        picked_up_at: new Date().toISOString(),
+      })
+      .eq("id", selectedOrder.id);
+
+    if (error) return toast.error(error.message);
+
+    toast.success("Order released successfully");
+
+    setShowPaymentModal(false);
+    setSelectedOrder(null);
+    loadData();
+  }
+
   async function updateStatus(order, newStatus) {
+    if (newStatus === "released") {
+      const total = Number(order.total_price) || 0;
+
+      // ✅ handle downpayment / partial safely
+      const paid =
+        Number(order.amount_paid) ||
+        (order.payment_status === "paid"
+          ? total
+          : order.payment_status === "partial"
+            ? total * 0.5
+            : 0);
+
+      const remaining = total - paid;
+
+      if (remaining > 0) {
+        setSelectedOrder(order);
+        setPaymentAmount(remaining); // ✅ exact remaining
+        setPaymentMethod("cash");
+        setShowPaymentModal(true);
+        return;
+      }
+    }
+
     const updates = {
       status: newStatus,
       stage_started_at: AUTO_TIMER_STAGES.includes(newStatus)
@@ -897,27 +968,27 @@ export default function Orders() {
   }
 
   const filtered = orders
-  .filter((o) => {
-    if (filter !== "all" && o.status !== filter) return false;
+    .filter((o) => {
+      if (filter !== "all" && o.status !== filter) return false;
 
-    if (search) {
-      const q = search.toLowerCase();
-      return (
-        o.order_number?.toLowerCase().includes(q) ||
-        o.customers?.name?.toLowerCase().includes(q)
-      );
-    }
+      if (search) {
+        const q = search.toLowerCase();
+        return (
+          o.order_number?.toLowerCase().includes(q) ||
+          o.customers?.name?.toLowerCase().includes(q)
+        );
+      }
 
-    return true;
-  })
-  .sort((a, b) => {
-    // 🔥 1. released always LAST
-    if (a.status === "released" && b.status !== "released") return 1;
-    if (a.status !== "released" && b.status === "released") return -1;
+      return true;
+    })
+    .sort((a, b) => {
+      // 🔥 1. released always LAST
+      if (a.status === "released" && b.status !== "released") return 1;
+      if (a.status !== "released" && b.status === "released") return -1;
 
-    // 🔥 2. oldest first
-    return a.priority_order - b.priority_order;
-  });
+      // 🔥 2. oldest first
+      return a.priority_order - b.priority_order;
+    });
 
   if (loading)
     return (
@@ -1638,6 +1709,63 @@ export default function Orders() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {showPaymentModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowPaymentModal(false)}
+        >
+          <div className="order-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="order-modal-header">
+              <h3>Complete Payment</h3>
+              <button
+                className="btn-icon"
+                onClick={() => setShowPaymentModal(false)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="order-modal-body">
+              <div className="form-group">
+                <label>Remaining Amount</label>
+                <input
+                  className="form-control"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  type="number"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Payment Method</label>
+                <select
+                  className="form-control"
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                >
+                  <option value="cash">Cash</option>
+                  <option value="gcash">GCash</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="order-modal-footer">
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowPaymentModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={completePaymentAndRelease}
+              >
+                Confirm & Release
+              </button>
+            </div>
           </div>
         </div>
       )}
