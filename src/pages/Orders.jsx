@@ -1,19 +1,19 @@
 import { format } from "date-fns";
 import {
-  ArrowRight,
-  CheckCircle2,
-  Clock,
-  Edit2,
-  LayoutGrid,
-  List,
-  Mail,
-  Minus,
-  Play,
-  Plus,
-  Search,
-  Trash2,
-  User,
-  X,
+    ArrowRight,
+    CheckCircle2,
+    Clock,
+    Edit2,
+    LayoutGrid,
+    List,
+    Mail,
+    Minus,
+    Play,
+    Plus,
+    Search,
+    Trash2,
+    User,
+    X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
@@ -289,7 +289,8 @@ export default function Orders() {
       supabase
         .from("orders")
         .select("*, customers(name, phone, email)")
-        .order("created_at", { ascending: false }),
+        .order("priority_order", { ascending: true }),
+
       supabase.from("customers").select("*").order("name"),
       supabase
         .from("inventory_items")
@@ -895,8 +896,10 @@ export default function Orders() {
     }, {});
   }
 
-  const filtered = orders.filter((o) => {
+  const filtered = orders
+  .filter((o) => {
     if (filter !== "all" && o.status !== filter) return false;
+
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -904,7 +907,16 @@ export default function Orders() {
         o.customers?.name?.toLowerCase().includes(q)
       );
     }
+
     return true;
+  })
+  .sort((a, b) => {
+    // 🔥 1. released always LAST
+    if (a.status === "released" && b.status !== "released") return 1;
+    if (a.status !== "released" && b.status === "released") return -1;
+
+    // 🔥 2. oldest first
+    return a.priority_order - b.priority_order;
   });
 
   if (loading)
