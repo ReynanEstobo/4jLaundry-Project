@@ -63,6 +63,18 @@ function getStageDurations(settings) {
   };
 }
 
+function calculateDynamicETA(order, settings) {
+  if (!order.created_at) return null;
+
+  const totalMinutes =
+    (Number(settings.etaWash) || 45) +
+    (Number(settings.etaDrying) || 40) +
+    (Number(settings.etaFolding) || 15);
+
+  const baseTime = new Date(order.created_at);
+  return new Date(baseTime.getTime() + totalMinutes * 60000);
+}
+
 async function sendReadyEmail(order, customerName, customerEmail) {
   if (!customerEmail) return;
   try {
@@ -791,8 +803,11 @@ export default function Orders() {
       if (mins > 0) return `${mins}m ${secs}s`;
       return `${secs}s`;
     }
-    if (!estimatedCompletion) return null;
-    const diffMs = new Date(estimatedCompletion) - new Date();
+    // Use dynamic ETA instead of stored value
+    const dynamicETA = calculateDynamicETA(order, settings);
+    if (!dynamicETA) return null;
+
+    const diffMs = dynamicETA - new Date();
     if (diffMs <= 0) return "Ready!";
     const mins = Math.floor(diffMs / 60000);
     const hrs = Math.floor(mins / 60);
