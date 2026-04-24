@@ -49,12 +49,16 @@ export default function Dashboard() {
   const [forecasts, setForecasts] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   useEffect(() => {
     loadDashboard();
-  }, [range]);
+  }, [range, page]);
 
   const [tick, setTick] = useState(0);
 
@@ -108,37 +112,32 @@ export default function Dashboard() {
     }
 
     if (range === "yearly") {
-  for (let i = 11; i >= 0; i--) {
-    const date = new Date(
-      now.getFullYear(),
-      now.getMonth() - i,
-      1
-    );
+      for (let i = 11; i >= 0; i--) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
 
-    const monthOrders = orders.filter((o) => {
-      const d = new Date(o.created_at);
-      return (
-        d.getMonth() === date.getMonth() &&
-        d.getFullYear() === date.getFullYear()
-      );
-    });
+        const monthOrders = orders.filter((o) => {
+          const d = new Date(o.created_at);
+          return (
+            d.getMonth() === date.getMonth() &&
+            d.getFullYear() === date.getFullYear()
+          );
+        });
 
-    data.push({
-      label: format(date, "MMM"),
-      orders: monthOrders.length,
-      revenue: monthOrders.reduce(
-        (s, o) => s + Number(o.total_price),
-        0
-      ),
-    });
-  }
-}
+        data.push({
+          label: format(date, "MMM"),
+          orders: monthOrders.length,
+          revenue: monthOrders.reduce((s, o) => s + Number(o.total_price), 0),
+        });
+      }
+    }
 
     return data;
   }
 
   async function loadDashboard() {
-    setLoading(true);
+    if (isInitialLoad) setLoading(true);
+    setLoading(false);
+    setIsInitialLoad(false);
     const today = startOfToday().toISOString();
 
     const [
@@ -154,8 +153,13 @@ export default function Dashboard() {
       supabase.from("inventory_items").select("*, inventory_categories(name)"),
       supabase
         .from("orders")
-        .select("*, customers(name, phone), service_types(name)")
-        .order("created_at", { ascending: false }),
+        .select("*, customers(name, phone), service_types(name)", {
+          count: "exact",
+        })
+        // ✅ ADD THIS
+        .order("status", { ascending: true }) // NOT released first
+        .order("created_at", { ascending: true }) // oldest first
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
       supabase
         .from("inventory_usage_log")
         .select("*")
@@ -194,12 +198,22 @@ export default function Dashboard() {
       lowStockItems,
     });
 
-    const filteredOrders = (recentRes.data || [])
-      .filter((o) => o.status !== "released")
-      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const sorted = (recentRes.data || []).sort((a, b) => {
+      // 1. Non-released first
+      const aReleased = a.status === "released";
+      const bReleased = b.status === "released";
 
-    setRecentOrders(filteredOrders);
-    setPage(0);
+      if (aReleased !== bReleased) {
+        return aReleased ? 1 : -1;
+      }
+
+      // 2. Oldest first
+      return new Date(a.created_at) - new Date(b.created_at);
+    });
+
+    setRecentOrders(sorted);
+
+    setTotalCount(recentRes.count || 0);
     // Generate smart suggestions
     const tips = generateSuggestions(
       inventory,
@@ -512,11 +526,6 @@ export default function Dashboard() {
 
     return `${minutes}m ${seconds}s`;
   }
-
-  const paginatedOrders = recentOrders.slice(
-    page * PAGE_SIZE,
-    (page + 1) * PAGE_SIZE,
-  );
 
   if (loading)
     return (
@@ -956,7 +965,7 @@ export default function Dashboard() {
                   </td>
                 </tr>
               ) : (
-                paginatedOrders.map((order) => (
+                recentOrders.map((order) => (
                   <tr key={order.id}>
                     <td
                       style={{ fontWeight: 600, color: "var(--text-primary)" }}
@@ -997,28 +1006,122 @@ export default function Dashboard() {
               )}
             </tbody>
           </table>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginTop: 10,
-            }}
-          >
-            <button
-              className="btn btn-sm"
-              disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
+          <div style={{ marginTop: 14, textAlign: "center" }}>
+            {/* PAGINATION BUTTONS */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 8,
+              }}
             >
-              Previous
-            </button>
+              {/* FIRST */}
+              <button
+                className="btn btn-sm"
+                disabled={page === 0}
+                onClick={() => setPage(0)}
+                style={{
+                  opacity: page === 0 ? 0.4 : 1,
+                  padding: "6px 10px",
+                }}
+              >
+                «
+              </button>
 
-            <button
-              className="btn btn-sm"
-              disabled={(page + 1) * PAGE_SIZE >= recentOrders.length}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </button>
+              {/* PREVIOUS */}
+              <button
+                className="btn btn-sm"
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(p - 1, 0))}
+                style={{
+                  opacity: page === 0 ? 0.4 : 1,
+                  padding: "6px 10px",
+                }}
+              >
+                ‹
+              </button>
+
+              {/* PAGE NUMBERS */}
+              {(() => {
+                const pages = [];
+
+                if (totalPages === 0) return null;
+
+                // Always show max 3 pages
+                let start = Math.max(0, page - 1);
+                let end = Math.min(totalPages, start + 3);
+
+                // Adjust if near end
+                if (end - start < 3) {
+                  start = Math.max(0, end - 3);
+                }
+
+                for (let i = start; i < end; i++) {
+                  const isActive = i === page;
+
+                  pages.push(
+                    <button
+                      key={i}
+                      onClick={() => setPage(i)}
+                      style={{
+                        minWidth: 36,
+                        height: 36,
+                        borderRadius: 8,
+                        border: isActive
+                          ? "1px solid #64748b"
+                          : "1px solid transparent",
+                        background: isActive ? "#1e293b" : "transparent",
+                        color: isActive ? "#fff" : "#94a3b8",
+                        fontWeight: 600,
+                        transition: "all 0.2s ease",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {i + 1}
+                    </button>,
+                  );
+                }
+
+                return pages;
+              })()}
+              {/* NEXT */}
+              <button
+                className="btn btn-sm"
+                disabled={page + 1 >= totalPages}
+                onClick={() => setPage((p) => (p + 1 < totalPages ? p + 1 : p))}
+                style={{
+                  opacity: page + 1 >= totalPages ? 0.4 : 1,
+                  padding: "6px 10px",
+                }}
+              >
+                ›
+              </button>
+
+              {/* LAST */}
+              <button
+                className="btn btn-sm"
+                disabled={page + 1 >= totalPages}
+                onClick={() => setPage(totalPages - 1)}
+                style={{
+                  opacity: page + 1 >= totalPages ? 0.4 : 1,
+                  padding: "6px 10px",
+                }}
+              >
+                »
+              </button>
+            </div>
+
+            {/* RANGE TEXT */}
+            <div style={{ fontSize: 13, color: "#94a3b8" }}>
+              {totalCount === 0
+                ? "0 of 0"
+                : `${page * PAGE_SIZE + 1}–${Math.min(
+                    (page + 1) * PAGE_SIZE,
+                    totalCount,
+                  )} out of ${totalCount}`}
+            </div>
           </div>
         </div>
       </div>
