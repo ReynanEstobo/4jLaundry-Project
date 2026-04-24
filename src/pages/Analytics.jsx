@@ -1,4 +1,4 @@
-import { addDays, addWeeks, format, subDays } from "date-fns";
+import { addDays, format, subDays } from "date-fns";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -15,7 +15,6 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -86,7 +85,7 @@ const CustomTooltip = ({ active, payload, label }) => {
             {p.name}:
           </span>
           <span style={{ fontWeight: 600 }}>
-            {p.name === "orders" || p.name === "predicted"
+            {p.name === "predicted"
               ? p.value?.toFixed(0)
               : `₱${Number(p.value).toLocaleString()}`}
           </span>
@@ -152,6 +151,7 @@ export default function Analytics() {
   const [orders, setOrders] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
+  const [forecastOrders, setForecastOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({});
 
@@ -179,7 +179,7 @@ export default function Analytics() {
       startDate = subDays(now, 365).toISOString();
     }
 
-    const [ordersRes, expensesRes, allOrdersRes] = await Promise.all([
+    const [ordersRes, expensesRes] = await Promise.all([
       supabase
         .from("orders")
         .select("*, service_types(name)")
@@ -196,12 +196,18 @@ export default function Analytics() {
     ]);
 
     const orderData = ordersRes.data || [];
-    const expenseData = expensesRes.data || [];
-    const allOrderData = allOrdersRes.data || [];
 
+    const expenseData = expensesRes.data || [];
     setOrders(orderData);
     setExpenses(expenseData);
-    setAllOrders(allOrderData);
+
+    // 🔥 NEW: fetch ALL orders for forecasting (independent)
+    const { data: forecastData } = await supabase
+      .from("orders")
+      .select("created_at")
+      .order("created_at", { ascending: true });
+
+    setForecastOrders(forecastData || []);
 
     const totalRevenue = orderData
       .filter((o) => o.payment_status === "paid")
@@ -220,7 +226,7 @@ export default function Analytics() {
     } else {
       prevStart = subDays(now, 730).toISOString();
     }
-    const prevOrders = allOrderData.filter(
+    const prevOrders = orderData.filter(
       (o) =>
         o.created_at >= prevStart &&
         o.created_at < startDate &&
@@ -325,17 +331,20 @@ export default function Analytics() {
 
   // ── Predictive: orders forecast ────────────────────────────────────────────
   function getPredictiveData() {
+    if (!forecastOrders.length) return [];
+
     const dailyMap = {};
 
-    allOrders.forEach((o) => {
+    forecastOrders.forEach((o) => {
       const d = format(new Date(o.created_at), "yyyy-MM-dd");
       dailyMap[d] = (dailyMap[d] || 0) + 1;
     });
 
-    // 🔥 USE ONLY RECENT DATA (BETTER ACCURACY)
-    const sortedDays = Object.keys(dailyMap).sort().slice(-30);
+    const sortedDays = Object.keys(dailyMap).sort();
+    const recentDays =
+      predRange === "year" ? sortedDays.slice(-90) : sortedDays.slice(-30);
 
-    const points = sortedDays.map((d, i) => ({
+    const points = recentDays.map((d, i) => ({
       x: i,
       y: dailyMap[d],
     }));
@@ -343,7 +352,9 @@ export default function Analytics() {
     const { slope, intercept } = linearRegression(points);
 
     const avg =
-      sortedDays.reduce((s, d) => s + dailyMap[d], 0) / sortedDays.length;
+      recentDays.length > 0
+        ? recentDays.reduce((s, d) => s + dailyMap[d], 0) / recentDays.length
+        : 0;
 
     let futureDates = [];
     const today = new Date();
@@ -353,19 +364,24 @@ export default function Analytics() {
     } else if (predRange === "month") {
       futureDates = Array.from({ length: 30 }, (_, i) => addDays(today, i + 1));
     } else {
-      futureDates = Array.from({ length: 52 }, (_, i) =>
-        addWeeks(today, i + 1),
-      );
+      // yearly → next 12 months
+      futureDates = Array.from({ length: 12 }, (_, i) => {
+        const d = new Date();
+        d.setMonth(d.getMonth() + i + 1);
+        return d;
+      });
     }
 
+    // 🔥 BUILD HISTORICAL CONTEXT FOR ALL MODES
+    let histSlice = [];
+
+    // 🔥 PREDICTIONS
     const predicted = futureDates.map((date, i) => {
-      let raw = slope * (sortedDays.length + i) + intercept;
+      const trend = slope * (recentDays.length + i) + intercept;
 
-      // 🔥 CLAMP (PREVENT SPIKES)
+      let raw = trend * 0.7 + avg * 0.3;
+
       raw = Math.max(0, Math.min(raw, avg * 2));
-
-      if (predRange === "month") raw *= 7;
-      if (predRange === "year") raw *= 30;
 
       return {
         date:
@@ -373,23 +389,13 @@ export default function Analytics() {
             ? format(date, "MMM yyyy")
             : predRange === "month"
               ? format(date, "MMM d")
-              : format(date, "EEE MMM d"),
-        predicted: Math.round(raw),
+              : format(date, "EEE"),
+        predicted: isNaN(raw) ? 0 : Math.round(raw),
         isPrediction: true,
       };
     });
 
-    // KEEP YOUR HISTORICAL PART (UNCHANGED)
-    let histSlice = [];
-    if (predRange === "week") {
-      histSlice = sortedDays.slice(-14).map((d) => ({
-        date: format(new Date(d), "MMM d"),
-        actual: dailyMap[d],
-        isPrediction: false,
-      }));
-    }
-
-    return [...histSlice, ...predicted];
+    return predicted;
   }
 
   const descriptiveData = getDescriptiveData();
@@ -649,28 +655,7 @@ export default function Analytics() {
                   allowDecimals={false}
                 />
                 <Tooltip content={<CustomTooltip />} />
-                {splitDate && (
-                  <ReferenceLine
-                    x={splitDate}
-                    stroke="#8b5cf6"
-                    strokeDasharray="4 3"
-                    strokeWidth={2}
-                    label={{
-                      value: "Forecast →",
-                      position: "insideTopRight",
-                      fontSize: 11,
-                      fill: "#8b5cf6",
-                      fontWeight: 600,
-                    }}
-                  />
-                )}
-                <Bar
-                  dataKey="actual"
-                  name="actual"
-                  fill="#3b82f6"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={32}
-                />
+
                 <Bar
                   dataKey="predicted"
                   radius={[4, 4, 0, 0]}
@@ -686,11 +671,7 @@ export default function Analytics() {
                     <stop offset="100%" stopColor="#6366f1" stopOpacity={0.6} />
                   </linearGradient>
                 </defs>
-                <Legend
-                  formatter={(value) =>
-                    value === "predicted" ? "🔮 Predicted" : "📊 Actual"
-                  }
-                />
+                <Legend formatter={() => "Predicted Workload"} />
               </BarChart>
             </ResponsiveContainer>
           </div>
