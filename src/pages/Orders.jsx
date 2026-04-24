@@ -198,15 +198,23 @@ export default function Orders() {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [orders, setOrders] = useState([]);
+  const [allOrders, setAllOrders] = useState([]);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 10;
+  const [totalCount, setTotalCount] = useState(0);
+
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const [customers, setCustomers] = useState([]);
   const [soapItems, setSoapItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [filter, setFilter] = useState("all");
-  const [search, setSearch] = useState("");
+
+  const [searchInput, setSearchInput] = useState("");
   const [settings, setSettings] = useState({});
   const [viewMode, setViewMode] = useState("table");
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     if (settings?.defaultview) {
@@ -214,7 +222,6 @@ export default function Orders() {
     }
   }, [settings]);
   const [dragOrder, setDragOrder] = useState(null);
-  const [, setTicker] = useState(0);
 
   const mappedSettings = {
     etaWash: settings.etawash,
@@ -289,49 +296,62 @@ export default function Orders() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [ordersRes, custRes, soapRes] = await Promise.all([
-      supabase
-        .from("orders")
-        .select("*, customers(name, phone, email)")
-        .order("priority_order", { ascending: true }),
 
+    // 👇 ADD THIS BLOCK
+    let ordersQuery = supabase
+      .from("orders")
+      .select("*, customers(name, phone, email)", { count: "exact" });
+
+    if (filter !== "all") {
+      ordersQuery = ordersQuery.eq("status", filter);
+    }
+
+    ordersQuery = ordersQuery
+      .order("priority_order", { ascending: true })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+    // 👇 KEEP THIS (but replace first item)
+    const [ordersRes, custRes, soapRes] = await Promise.all([
+      ordersQuery,
       supabase.from("customers").select("*").order("name"),
       supabase
         .from("inventory_items")
         .select("*, inventory_categories(name)")
         .order("name"),
     ]);
+
+    // 🔥 fetch ALL orders for search (no pagination)
+    const { data: allData } = await supabase
+      .from("orders")
+      .select("*, customers(name, phone, email)")
+      .order("priority_order", { ascending: true });
+
+    setAllOrders(allData || []);
+
     setOrders(ordersRes.data || []);
+    setTotalCount(ordersRes.count || 0);
     setCustomers(custRes.data || []);
-    // Filter to soap/detergent-related items
-    const allItems = soapRes.data || [];
-    const soapCategories = [
-      "detergent",
-      "fabric softener",
-      "bleach",
-      "powder soap",
-      "stain remover",
-    ];
-    setSoapItems(
-      allItems.filter(
-        (item) =>
-          soapCategories.some((cat) =>
-            item.inventory_categories?.name?.toLowerCase().includes(cat),
-          ) ||
-          item.name?.toLowerCase().includes("soap") ||
-          item.name?.toLowerCase().includes("detergent"),
-      ),
-    );
+    setSoapItems(soapRes.data || []);
     setLoading(false);
-  }, []);
+  }, [page, filter]); // ✅ ADD THIS
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [loadData]); // ✅ FIXED // ✅ ADD page
+
+  useEffect(() => {
+    setPage(0);
+  }, [filter]);
 
   // Realtime: refresh when orders, customers, or inventory change
   useRealtime(["orders", "customers", "inventory_items"], loadData);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now()); // 🔥 updates UI every second
+    }, 1000);
 
+    return () => clearInterval(interval);
+  }, []);
   useEffect(() => {
     async function loadSettings() {
       const { data, error } = await supabase
@@ -447,59 +467,8 @@ export default function Orders() {
     const interval = setInterval(checkAndAdvance, 3000);
     return () => clearInterval(interval);
   }, [settings, loadData]);
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTicker((t) => t + 1); // 🔥 forces re-render every second
-    }, 1000);
 
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      for (const order of orders) {
-        if (!order.stage_started_at) continue;
-
-        const stageStart = new Date(order.stage_started_at).getTime();
-
-        const durations = {
-          washing: (Number(settings.etawash) || 45) * 60000,
-          drying: (Number(settings.etadrying) || 40) * 60000,
-          folding: (Number(settings.etafolding) || 15) * 60000,
-        };
-
-        const duration = durations[order.status];
-        if (!duration) continue;
-
-        const now = Date.now();
-
-        if (now >= stageStart + duration) {
-          const nextStageMap = {
-            washing: "drying",
-            drying: "folding",
-            folding: "ready",
-          };
-
-          const nextStatus = nextStageMap[order.status];
-          if (!nextStatus) continue;
-
-          await supabase
-            .from("orders")
-            .update({
-              status: nextStatus,
-              stage_started_at: AUTO_TIMER_STAGES.includes(nextStatus)
-                ? new Date().toISOString()
-                : null,
-            })
-            .eq("id", order.id);
-
-          loadData();
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [orders, settings]);
+  
 
   function openNew() {
     setEditing(null);
@@ -945,7 +914,7 @@ export default function Orders() {
     if (!order.stage_started_at) return "Waiting start";
 
     const stageStart = new Date(order.stage_started_at).getTime();
-    const now = Date.now();
+    const currentTime = now;
 
     const durations = {
       washing: (Number(settings.etawash) || 45) * 60000,
@@ -956,7 +925,7 @@ export default function Orders() {
     const duration = durations[order.status];
     if (!duration) return "";
 
-    const remaining = stageStart + duration - now;
+    const remaining = stageStart + duration - currentTime;
 
     if (remaining <= 0) return "Advancing...";
 
@@ -1007,27 +976,24 @@ export default function Orders() {
     }, {});
   }
 
-  const filtered = orders
+  const source = searchInput ? allOrders : orders;
+
+  const filtered = source
     .filter((o) => {
-      if (filter !== "all" && o.status !== filter) return false;
+      if (!searchInput) return true;
 
-      if (search) {
-        const q = search.toLowerCase();
-        return (
-          o.order_number?.toLowerCase().includes(q) ||
-          o.customers?.name?.toLowerCase().includes(q)
-        );
-      }
+      const q = searchInput.toLowerCase();
 
-      return true;
+      return (
+        o.order_number?.toLowerCase().includes(q) ||
+        o.customers?.name?.toLowerCase().includes(q)
+      );
     })
     .sort((a, b) => {
-      // 🔥 1. released always LAST
       if (a.status === "released" && b.status !== "released") return 1;
       if (a.status !== "released" && b.status === "released") return -1;
 
-      // 🔥 2. oldest first
-      return a.priority_order - b.priority_order;
+      return (a.priority_order ?? 0) - (b.priority_order ?? 0);
     });
 
   if (loading)
@@ -1060,8 +1026,8 @@ export default function Orders() {
             <Search />
             <input
               placeholder="Search orders..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <div className="view-toggle">
@@ -1363,6 +1329,128 @@ export default function Orders() {
                 )}
               </tbody>
             </table>
+            {!searchInput && (
+              <div style={{ marginTop: 14, textAlign: "center" }}>
+                {/* PAGINATION BUTTONS */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    gap: 6,
+                    marginBottom: 8,
+                  }}
+                >
+                  {/* FIRST */}
+                  <button
+                    className="btn btn-sm"
+                    disabled={page === 0}
+                    onClick={() => setPage(0)}
+                    style={{
+                      opacity: page === 0 ? 0.4 : 1,
+                      padding: "6px 10px",
+                    }}
+                  >
+                    «
+                  </button>
+
+                  {/* PREVIOUS */}
+                  <button
+                    className="btn btn-sm"
+                    disabled={page === 0}
+                    onClick={() => setPage((p) => Math.max(p - 1, 0))}
+                    style={{
+                      opacity: page === 0 ? 0.4 : 1,
+                      padding: "6px 10px",
+                    }}
+                  >
+                    ‹
+                  </button>
+
+                  {/* PAGE NUMBERS */}
+                  {(() => {
+                    const pages = [];
+
+                    if (totalPages === 0) return null;
+
+                    let start = Math.max(0, page - 1);
+                    let end = Math.min(totalPages, start + 3);
+
+                    if (end - start < 3) {
+                      start = Math.max(0, end - 3);
+                    }
+
+                    for (let i = start; i < end; i++) {
+                      const isActive = i === page;
+
+                      pages.push(
+                        <button
+                          key={i}
+                          onClick={() => setPage(i)}
+                          style={{
+                            minWidth: 36,
+                            height: 36,
+                            borderRadius: 8,
+                            border: isActive
+                              ? "1px solid #64748b"
+                              : "1px solid transparent",
+                            background: isActive ? "#1e293b" : "transparent",
+                            color: isActive ? "#fff" : "#94a3b8",
+                            fontWeight: 600,
+                            transition: "all 0.2s ease",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {i + 1}
+                        </button>,
+                      );
+                    }
+
+                    return pages;
+                  })()}
+
+                  {/* NEXT */}
+                  <button
+                    className="btn btn-sm"
+                    disabled={page + 1 >= totalPages}
+                    onClick={() =>
+                      setPage((p) => (p + 1 < totalPages ? p + 1 : p))
+                    }
+                    style={{
+                      opacity: page + 1 >= totalPages ? 0.4 : 1,
+                      padding: "6px 10px",
+                    }}
+                  >
+                    ›
+                  </button>
+
+                  {/* LAST */}
+                  <button
+                    className="btn btn-sm"
+                    disabled={page + 1 >= totalPages}
+                    onClick={() => setPage(totalPages - 1)}
+                    style={{
+                      opacity: page + 1 >= totalPages ? 0.4 : 1,
+                      padding: "6px 10px",
+                    }}
+                  >
+                    »
+                  </button>
+                </div>
+
+                {/* RANGE TEXT */}
+                <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                  {searchInput
+                    ? `${filtered.length} results found`
+                    : totalCount === 0
+                      ? "0 of 0"
+                      : `${page * PAGE_SIZE + 1}–${Math.min(
+                          (page + 1) * PAGE_SIZE,
+                          totalCount,
+                        )} out of ${totalCount}`}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
