@@ -90,6 +90,49 @@ export default function Dashboard() {
         });
       }
     }
+    if (range === "monthly") {
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(now.getDate() - i);
+
+        const dayOrders = orders.filter(
+          (o) => new Date(o.created_at).toDateString() === date.toDateString(),
+        );
+
+        data.push({
+          label: format(date, "MMM d"),
+          orders: dayOrders.length,
+          revenue: dayOrders.reduce((s, o) => s + Number(o.total_price), 0),
+        });
+      }
+    }
+
+    if (range === "yearly") {
+  for (let i = 11; i >= 0; i--) {
+    const date = new Date(
+      now.getFullYear(),
+      now.getMonth() - i,
+      1
+    );
+
+    const monthOrders = orders.filter((o) => {
+      const d = new Date(o.created_at);
+      return (
+        d.getMonth() === date.getMonth() &&
+        d.getFullYear() === date.getFullYear()
+      );
+    });
+
+    data.push({
+      label: format(date, "MMM"),
+      orders: monthOrders.length,
+      revenue: monthOrders.reduce(
+        (s, o) => s + Number(o.total_price),
+        0
+      ),
+    });
+  }
+}
 
     return data;
   }
