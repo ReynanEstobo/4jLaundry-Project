@@ -148,6 +148,10 @@ function SubFilter({ value, onChange, options }) {
 
 export default function Analytics() {
   const [range, setRange] = useState("weekly");
+  const [customRange, setCustomRange] = useState({
+    start: null,
+    end: null,
+  });
   const [orders, setOrders] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
@@ -161,9 +165,12 @@ export default function Analytics() {
 
   useEffect(() => {
     loadAnalytics();
-  }, [range]);
+  }, [range, customRange]);
 
-  const loadAnalyticsCb = useCallback(() => loadAnalytics(), [range]);
+  const loadAnalyticsCb = useCallback(
+    () => loadAnalytics(),
+    [range, customRange],
+  );
   useRealtime(["orders", "expenses"], loadAnalyticsCb);
 
   async function loadAnalytics() {
@@ -171,12 +178,22 @@ export default function Analytics() {
     const now = new Date();
 
     let startDate;
-    if (range === "weekly") {
-      startDate = subDays(now, 7).toISOString();
-    } else if (range === "monthly") {
-      startDate = subDays(now, 30).toISOString();
+    let endDate = new Date().toISOString();
+
+    // ✅ PRIORITY: custom range
+    if (customRange.start && customRange.end) {
+      startDate = new Date(customRange.start).toISOString();
+      endDate = new Date(customRange.end).toISOString();
     } else {
-      startDate = subDays(now, 365).toISOString();
+      if (range === "weekly") {
+        startDate = subDays(now, 7).toISOString();
+      } else if (range === "monthly") {
+        // 🔥 FULL YEAR (IMPORTANT)
+        startDate = new Date(now.getFullYear(), 0, 1).toISOString();
+      } else {
+        // 🔥 MULTIPLE YEARS
+        startDate = new Date(now.getFullYear() - 5, 0, 1).toISOString();
+      }
     }
 
     const [ordersRes, expensesRes] = await Promise.all([
@@ -184,15 +201,14 @@ export default function Analytics() {
         .from("orders")
         .select("*, service_types(name)")
         .gte("created_at", startDate)
+        .lte("created_at", endDate)
         .order("created_at", { ascending: true }),
+
       supabase
         .from("expenses")
         .select("*")
-        .gte("expense_date", format(new Date(startDate), "yyyy-MM-dd")),
-      supabase
-        .from("orders")
-        .select("total_price, payment_status, created_at")
-        .order("created_at", { ascending: true }),
+        .gte("expense_date", format(new Date(startDate), "yyyy-MM-dd"))
+        .lte("expense_date", format(new Date(endDate), "yyyy-MM-dd")),
     ]);
 
     const orderData = ordersRes.data || [];
@@ -253,80 +269,132 @@ export default function Analytics() {
   // ── Descriptive: Revenue & Expenses grouped ────────────────────────────────
   // ── Descriptive: Revenue & Expenses grouped ────────────────────────────────
   function getDescriptiveData() {
-    // ✅ YOUR NEW CODE HERE
-    let base = [];
+    if (!orders.length && !expenses.length) return [];
 
-    if (range === "weekly") {
-      const labels = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+    // ✅ Determine active range
+    let start, end;
 
-      base = labels.map((label, i) => {
-        const dayIndex = i + 1; // Monday = 1
+    if (customRange.start && customRange.end) {
+      // ✅ CUSTOM RANGE
+      start = new Date(customRange.start);
+      end = new Date(customRange.end);
+    } else {
+      // ✅ TRUE DEFAULT BEHAVIOR
+      const now = new Date();
 
-        const dayOrders = orders.filter((o) => {
-          const d = new Date(o.created_at);
-          return d.getDay() === dayIndex && o.payment_status === "paid";
-        });
+      if (range === "weekly") {
+        start = subDays(now, 7);
+        end = now;
+      } else if (range === "monthly") {
+        // 🔥 FIX: FULL YEAR
+        start = new Date(now.getFullYear(), 0, 1);
+        end = new Date(now.getFullYear(), 11, 31);
+      } else {
+        start = new Date(now.getFullYear() - 5, 0, 1); // 🔥 last 6 years
+        end = new Date(now.getFullYear(), 11, 31);
+      }
+    }
 
-        const dayExpenses = expenses.filter((e) => {
-          const d = new Date(e.expense_date);
-          return d.getDay() === dayIndex;
-        });
+    const result = [];
+    const cursor = new Date(start);
 
-        return {
+    while (cursor <= end) {
+      let key;
+      let label;
+
+      if (customRange.start && customRange.end) {
+        // 🔥 CUSTOM RANGE MODE
+        if (range === "weekly") {
+          label = format(cursor, "EEE");
+        } else if (range === "monthly") {
+          label = format(cursor, "MMM yyyy");
+        } else {
+          label = format(cursor, "yyyy");
+        }
+      } else {
+        // DEFAULT MODE
+        if (range === "weekly") {
+          label = format(cursor, "EEE"); // keep
+        } else if (range === "monthly") {
+          label = format(cursor, "MMM"); // keep
+        } else {
+          label = format(cursor, "yyyy");
+        }
+      }
+
+      key = label;
+
+      let uniqueKey;
+
+      if (range === "weekly") {
+        uniqueKey = format(cursor, "yyyy-MM-dd");
+      } else if (range === "monthly") {
+        uniqueKey = format(cursor, "yyyy-MM"); // 🔥 IMPORTANT
+      } else {
+        uniqueKey = format(cursor, "yyyy");
+      }
+
+      if (!result.find((r) => r.key === uniqueKey)) {
+        result.push({
+          key: uniqueKey,
           date: label,
-          revenue: dayOrders.reduce((s, o) => s + Number(o.total_price), 0),
-          expenses: dayExpenses.reduce((s, e) => s + Number(e.amount), 0),
-        };
-      });
+          revenue: 0,
+          expenses: 0,
+          _date: new Date(cursor),
+        });
+      }
+
+      // ⏩ Move cursor
+      if (range === "weekly") {
+        cursor.setDate(cursor.getDate() + 1);
+      } else if (range === "monthly") {
+        cursor.setMonth(cursor.getMonth() + 1);
+      } else {
+        cursor.setFullYear(cursor.getFullYear() + 1);
+      }
     }
 
-    // 🔵 MONTHLY → January to December
-    if (range === "monthly") {
-      const months = Array.from({ length: 12 }, (_, i) => i);
+    // ✅ MAP ORDERS
+    orders.forEach((o) => {
+      if (o.payment_status !== "paid") return;
 
-      base = months.map((month) => {
-        const monthOrders = orders.filter((o) => {
-          const d = new Date(o.created_at);
-          return d.getMonth() === month && o.payment_status === "paid";
-        });
+      const d = new Date(o.created_at);
 
-        const monthExpenses = expenses.filter((e) => {
-          const d = new Date(e.expense_date);
-          return d.getMonth() === month;
-        });
+      let key;
 
-        return {
-          date: format(new Date(2024, month), "MMM"),
-          revenue: monthOrders.reduce((s, o) => s + Number(o.total_price), 0),
-          expenses: monthExpenses.reduce((s, e) => s + Number(e.amount), 0),
-        };
-      });
-    }
+      if (range === "weekly") {
+        key = format(d, "yyyy-MM-dd");
+      } else if (range === "monthly") {
+        key = format(d, "yyyy-MM");
+      } else {
+        key = format(d, "yyyy");
+      }
 
-    // 🟣 YEARLY → LAST 5 YEARS ONLY
-    if (range === "yearly") {
-      const currentYear = new Date().getFullYear();
-      const years = Array.from({ length: 5 }, (_, i) => currentYear - 4 + i);
+      const item = result.find((r) => r.key.startsWith(key));
+      if (item) item.revenue += Number(o.total_price);
+    });
 
-      base = years.map((year) => {
-        const yearOrders = orders.filter((o) => {
-          const d = new Date(o.created_at);
-          return d.getFullYear() === year && o.payment_status === "paid";
-        });
+    // ✅ MAP EXPENSES
+    expenses.forEach((e) => {
+      const d = new Date(e.expense_date);
 
-        const yearExpenses = expenses.filter((e) => {
-          const d = new Date(e.expense_date);
-          return d.getFullYear() === year;
-        });
+      let key;
 
-        return {
-          date: year.toString(),
-          revenue: yearOrders.reduce((s, o) => s + Number(o.total_price), 0),
-          expenses: yearExpenses.reduce((s, e) => s + Number(e.amount), 0),
-        };
-      });
-    }
-    return base;
+      if (range === "weekly") {
+        key = format(d, "yyyy-MM-dd");
+      } else if (range === "monthly") {
+        key = format(d, "yyyy-MM"); // 🔥 SAME AS ORDERS
+      } else {
+        key = format(d, "yyyy");
+      }
+
+      const item = result.find((r) => r.key.startsWith(key));
+      if (item) item.expenses += Number(e.amount);
+    });
+
+    result.sort((a, b) => a._date - b._date);
+
+    return result;
   }
 
   // ── Predictive: orders forecast ────────────────────────────────────────────
@@ -341,8 +409,15 @@ export default function Analytics() {
     });
 
     const sortedDays = Object.keys(dailyMap).sort();
-    const recentDays =
-      predRange === "year" ? sortedDays.slice(-90) : sortedDays.slice(-30);
+    let recentDays;
+
+    if (predRange === "week") {
+      recentDays = sortedDays.slice(-14);
+    } else if (predRange === "month") {
+      recentDays = sortedDays.slice(-30);
+    } else {
+      recentDays = sortedDays.slice(-90);
+    }
 
     const points = recentDays.map((d, i) => ({
       x: i,
@@ -417,9 +492,88 @@ export default function Analytics() {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: 24,
+          marginBottom: 16,
+          flexWrap: "wrap",
+          gap: 10,
         }}
-      ></div>
+      >
+        {/* 📅 DATE RANGE FILTER */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            background: "#fff",
+            border: "1px solid #e5e7eb",
+            borderRadius: 12,
+            padding: "8px 12px",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+          }}
+        >
+          {/* ICON LABEL */}
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#6b7280" }}>
+            {customRange.start && customRange.end
+              ? `${format(new Date(customRange.start), "MMM d")} → ${format(new Date(customRange.end), "MMM d")}`
+              : "📅 Date Range"}
+          </span>
+
+          {/* START DATE */}
+          <input
+            type="date"
+            value={customRange.start || ""}
+            onChange={(e) =>
+              setCustomRange((prev) => ({ ...prev, start: e.target.value }))
+            }
+            style={{
+              border: "none",
+              outline: "none",
+              fontSize: 13,
+              background: "transparent",
+              color: "#111827",
+              fontWeight: 500,
+            }}
+          />
+
+          <span style={{ color: "#9ca3af" }}>→</span>
+
+          {/* END DATE */}
+          <input
+            type="date"
+            value={customRange.end || ""}
+            onChange={(e) =>
+              setCustomRange((prev) => ({ ...prev, end: e.target.value }))
+            }
+            style={{
+              border: "none",
+              outline: "none",
+              fontSize: 13,
+              background: "transparent",
+              color: "#111827",
+              fontWeight: 500,
+            }}
+          />
+
+          {/* CLEAR BUTTON */}
+          {(customRange.start || customRange.end) && (
+            <button
+              onClick={() => setCustomRange({ start: null, end: null })}
+              style={{
+                marginLeft: 6,
+                border: "none",
+                background: "#fee2e2",
+                color: "#ef4444",
+                borderRadius: 6,
+                padding: "4px 8px",
+                fontSize: 12,
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
 
       <div
         style={{
@@ -511,13 +665,23 @@ export default function Analytics() {
                     color: "var(--text-muted)",
                   }}
                 >
-                  Descriptive · {range.charAt(0).toUpperCase() + range.slice(1)}{" "}
+                  Descriptive ·{" "}
+                  {customRange.start && customRange.end
+                    ? `${format(new Date(customRange.start), "MMM d")} - ${format(new Date(customRange.end), "MMM d, yyyy")}`
+                    : `${range.charAt(0).toUpperCase() + range.slice(1)}`}{" "}
                   breakdown
                 </p>
               </div>
               <SubFilter
-                value={range}
-                onChange={setRange}
+                value={customRange.start && customRange.end ? null : range}
+                onChange={(val) => {
+                  // 🔥 HARD RESET ORDER (IMPORTANT)
+                  setCustomRange({ start: null, end: null });
+
+                  setTimeout(() => {
+                    setRange(val);
+                  }, 0);
+                }}
                 options={[
                   { value: "weekly", label: "Weekly" },
                   { value: "monthly", label: "Monthly" },
@@ -600,19 +764,7 @@ export default function Analytics() {
                   }}
                 >
                   Order Forecast
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                      color: "#fff",
-                      borderRadius: 6,
-                      padding: "2px 7px",
-                      letterSpacing: "0.05em",
-                    }}
-                  >
-                    AI
-                  </span>
+                 
                 </h3>
                 <p
                   style={{
