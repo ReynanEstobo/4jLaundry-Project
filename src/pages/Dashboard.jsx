@@ -1,57 +1,146 @@
-import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../lib/supabase'
-import { useRealtime } from '../lib/useRealtime'
-import { format, startOfToday, startOfMonth, differenceInDays } from 'date-fns'
+import { differenceInDays, format, startOfToday } from "date-fns";
 import {
-  ShoppingBag, DollarSign, Users, Clock, TrendingUp,
-  AlertTriangle, CheckCircle2, Loader2, Lightbulb,
-  ShoppingCart, Package, Bell, ArrowRight, Brain, Zap, BarChart2
-} from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
-import { useNavigate } from 'react-router-dom'
+  AlertTriangle,
+  ArrowRight,
+  BarChart2,
+  Bell,
+  Brain,
+  CheckCircle2,
+  Clock,
+  DollarSign,
+  Lightbulb,
+  Package,
+  ShoppingBag,
+  ShoppingCart,
+  TrendingUp,
+  Users,
+  Zap,
+} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { supabase } from "../lib/supabase";
+import { useRealtime } from "../lib/useRealtime";
 
 export default function Dashboard() {
-  const navigate = useNavigate()
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
-    todayOrders: 0, todayRevenue: 0, totalCustomers: 0,
-    activeOrders: 0, readyForPickup: 0, lowStockItems: 0
-  })
-  const [recentOrders, setRecentOrders] = useState([])
-  const [weeklyData, setWeeklyData] = useState([])
-  const [suggestions, setSuggestions] = useState([])
-  const [forecasts, setForecasts] = useState(null)
-  const [loading, setLoading] = useState(true)
+    todayOrders: 0,
+    todayRevenue: 0,
+    totalCustomers: 0,
+    activeOrders: 0,
+    readyForPickup: 0,
+    lowStockItems: 0,
+  });
+  const [recentOrders, setRecentOrders] = useState([]);
+  const [weeklyData, setWeeklyData] = useState([]);
+  const [settings, setSettings] = useState({});
+  const [range, setRange] = useState("weekly");
+  const [suggestions, setSuggestions] = useState([]);
+  const [forecasts, setForecasts] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => { loadDashboard() }, [])
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 10;
+
+  useEffect(() => {
+    loadDashboard();
+  }, [range]);
+
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Realtime: refresh dashboard when orders or inventory change
-  const loadDashboardCb = useCallback(() => loadDashboard(), [])
-  useRealtime(['orders', 'customers', 'inventory_items'], loadDashboardCb)
+  const loadDashboardCb = useCallback(() => loadDashboard(), []);
+  useRealtime(["orders", "customers", "inventory_items"], loadDashboardCb);
+
+  function buildChartData(orders, range) {
+    const data = [];
+    const now = new Date();
+
+    if (range === "weekly") {
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(now.getDate() - i);
+
+        const dayOrders = orders.filter(
+          (o) => new Date(o.created_at).toDateString() === date.toDateString(),
+        );
+
+        data.push({
+          label: format(date, "EEE"),
+          orders: dayOrders.length,
+          revenue: dayOrders.reduce((s, o) => s + Number(o.total_price), 0),
+        });
+      }
+    }
+
+    return data;
+  }
 
   async function loadDashboard() {
-    setLoading(true)
-    const today = startOfToday().toISOString()
+    setLoading(true);
+    const today = startOfToday().toISOString();
 
-    const [ordersRes, customersRes, inventoryRes, recentRes, usageRes, categoriesRes] = await Promise.all([
-      supabase.from('orders').select('*'),
-      supabase.from('customers').select('id', { count: 'exact', head: true }),
-      supabase.from('inventory_items').select('*, inventory_categories(name)'),
-      supabase.from('orders').select('*, customers(name, phone), service_types(name)')
-        .order('created_at', { ascending: false }).limit(8),
-      supabase.from('inventory_usage_log').select('*').order('logged_at', { ascending: false }).limit(500),
-      supabase.from('inventory_categories').select('*')
-    ])
+    const [
+      ordersRes,
+      customersRes,
+      inventoryRes,
+      recentRes,
+      usageRes,
+      categoriesRes,
+    ] = await Promise.all([
+      supabase.from("orders").select("*"),
+      supabase.from("customers").select("id", { count: "exact", head: true }),
+      supabase.from("inventory_items").select("*, inventory_categories(name)"),
+      supabase
+        .from("orders")
+        .select("*, customers(name, phone), service_types(name)")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("inventory_usage_log")
+        .select("*")
+        .order("logged_at", { ascending: false })
+        .limit(500),
+      supabase.from("inventory_categories").select("*"),
+    ]);
+    const { data: settingsData } = await supabase
+      .from("settings")
+      .select("*")
+      .single();
 
-    const orders = ordersRes.data || []
-    const inventory = inventoryRes.data || []
-    const usageLogs = usageRes.data || []
-    const todayOrders = orders.filter(o => o.created_at >= today)
+    setSettings(settingsData || {});
+
+    const orders = ordersRes.data || [];
+    const inventory = inventoryRes.data || [];
+    const usageLogs = usageRes.data || [];
+    const todayOrders = orders.filter((o) => o.created_at >= today);
     const todayRevenue = todayOrders
-      .filter(o => o.payment_status === 'paid')
-      .reduce((sum, o) => sum + Number(o.total_price), 0)
-    const activeOrders = orders.filter(o => !['released', 'cancelled'].includes(o.status)).length
-    const readyForPickup = orders.filter(o => o.status === 'ready').length
-    const lowStockItems = inventory.filter(i => Number(i.current_stock) <= Number(i.minimum_stock)).length
+      .filter((o) => o.payment_status === "paid")
+      .reduce((sum, o) => sum + Number(o.total_price), 0);
+    const activeOrders = orders.filter(
+      (o) => !["released", "cancelled"].includes(o.status),
+    ).length;
+    const readyForPickup = orders.filter((o) => o.status === "ready").length;
+    const lowStockItems = inventory.filter(
+      (i) => Number(i.current_stock) <= Number(i.minimum_stock),
+    ).length;
 
     setStats({
       todayOrders: todayOrders.length,
@@ -59,109 +148,154 @@ export default function Dashboard() {
       totalCustomers: customersRes.count || 0,
       activeOrders,
       readyForPickup,
-      lowStockItems
-    })
+      lowStockItems,
+    });
 
-    setRecentOrders(recentRes.data || [])
+    const filteredOrders = (recentRes.data || [])
+      .filter((o) => o.status !== "released")
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
+    setRecentOrders(filteredOrders);
+    setPage(0);
     // Generate smart suggestions
-    const tips = generateSuggestions(inventory, usageLogs, orders, readyForPickup)
-    setSuggestions(tips)
+    const tips = generateSuggestions(
+      inventory,
+      usageLogs,
+      orders,
+      readyForPickup,
+    );
+    setSuggestions(tips);
 
     // Generate AI forecasts
-    const fc = generateForecasts(orders, inventory, usageLogs)
-    setForecasts(fc)
+    const fc = generateForecasts(orders, inventory, usageLogs);
+    setForecasts(fc);
 
-    // Build weekly chart data
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-    const weekData = days.map((day, i) => {
-      const dayOrders = orders.filter(o => new Date(o.created_at).getDay() === i)
-      return {
-        day,
-        orders: dayOrders.length,
-        revenue: dayOrders.reduce((s, o) => s + Number(o.total_price), 0)
-      }
-    })
-    setWeeklyData(weekData)
-    setLoading(false)
+    setWeeklyData(buildChartData(orders, range));
+    setLoading(false);
   }
 
   function generateForecasts(orders, inventory, usageLogs) {
-    const now = new Date()
+    const now = new Date();
 
     // --- Workload prediction (next 7 days) ---
     // Calculate avg daily orders from last 30 days
-    const thirtyDaysAgo = new Date(now)
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-    const last30 = orders.filter(o => new Date(o.created_at) >= thirtyDaysAgo)
-    const avgDailyOrders = last30.length / 30
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const last30 = orders.filter(
+      (o) => new Date(o.created_at) >= thirtyDaysAgo,
+    );
+    const avgDailyOrders = last30.length / 30;
 
     // Check day-of-week pattern for tomorrow
-    const tomorrow = new Date(now)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    const tomorrowDow = tomorrow.getDay()
-    const sameDayOrders = orders.filter(o => new Date(o.created_at).getDay() === tomorrowDow)
-    const avgDowOrders = sameDayOrders.length > 0 ? sameDayOrders.length / Math.max(Math.ceil(orders.length / 7), 1) : avgDailyOrders
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowDow = tomorrow.getDay();
+    const sameDayOrders = orders.filter(
+      (o) => new Date(o.created_at).getDay() === tomorrowDow,
+    );
+    const avgDowOrders =
+      sameDayOrders.length > 0
+        ? sameDayOrders.length / Math.max(Math.ceil(orders.length / 7), 1)
+        : avgDailyOrders;
 
     // Workload level
-    let workloadPct = Math.min(Math.round((avgDowOrders / Math.max(avgDailyOrders, 1)) * 100), 100)
-    if (avgDailyOrders === 0) workloadPct = 0
-    let workloadLevel = 'Low'
-    if (workloadPct >= 80) workloadLevel = 'High Demand'
-    else if (workloadPct >= 50) workloadLevel = 'Moderate'
-    else if (workloadPct >= 20) workloadLevel = 'Normal'
+    let workloadPct = Math.min(
+      Math.round((avgDowOrders / Math.max(avgDailyOrders, 1)) * 100),
+      100,
+    );
+    if (avgDailyOrders === 0) workloadPct = 0;
+    let workloadLevel = "Low";
+    if (workloadPct >= 80) workloadLevel = "High Demand";
+    else if (workloadPct >= 50) workloadLevel = "Moderate";
+    else if (workloadPct >= 20) workloadLevel = "Normal";
 
     // --- Revenue prediction (next month) ---
-    const paidOrders = orders.filter(o => o.payment_status === 'paid')
-    const totalRevenue = paidOrders.reduce((s, o) => s + Number(o.total_price), 0)
-    const oldestOrder = orders.length > 0 ? new Date(Math.min(...orders.map(o => new Date(o.created_at)))) : now
-    const daysOfData = Math.max(differenceInDays(now, oldestOrder), 1)
-    const dailyRevenue = totalRevenue / daysOfData
-    const predictedMonthlyRevenue = Math.round(dailyRevenue * 30)
+    const paidOrders = orders.filter((o) => o.payment_status === "paid");
+    const totalRevenue = paidOrders.reduce(
+      (s, o) => s + Number(o.total_price),
+      0,
+    );
+    const oldestOrder =
+      orders.length > 0
+        ? new Date(Math.min(...orders.map((o) => new Date(o.created_at))))
+        : now;
+    const daysOfData = Math.max(differenceInDays(now, oldestOrder), 1);
+    const dailyRevenue = totalRevenue / daysOfData;
+    const predictedMonthlyRevenue = Math.round(dailyRevenue * 30);
 
     // Revenue trend (comparing last 15 days vs previous 15 days)
-    const fifteenDaysAgo = new Date(now)
-    fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15)
-    const thirtyDaysAgoDt = new Date(now)
-    thirtyDaysAgoDt.setDate(thirtyDaysAgoDt.getDate() - 30)
-    const recent15 = paidOrders.filter(o => new Date(o.created_at) >= fifteenDaysAgo)
-    const prev15 = paidOrders.filter(o => new Date(o.created_at) >= thirtyDaysAgoDt && new Date(o.created_at) < fifteenDaysAgo)
-    const recent15Rev = recent15.reduce((s, o) => s + Number(o.total_price), 0)
-    const prev15Rev = prev15.reduce((s, o) => s + Number(o.total_price), 0)
-    const revenueTrend = prev15Rev > 0 ? ((recent15Rev - prev15Rev) / prev15Rev * 100).toFixed(1) : 0
+    const fifteenDaysAgo = new Date(now);
+    fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+    const thirtyDaysAgoDt = new Date(now);
+    thirtyDaysAgoDt.setDate(thirtyDaysAgoDt.getDate() - 30);
+    const recent15 = paidOrders.filter(
+      (o) => new Date(o.created_at) >= fifteenDaysAgo,
+    );
+    const prev15 = paidOrders.filter(
+      (o) =>
+        new Date(o.created_at) >= thirtyDaysAgoDt &&
+        new Date(o.created_at) < fifteenDaysAgo,
+    );
+    const recent15Rev = recent15.reduce((s, o) => s + Number(o.total_price), 0);
+    const prev15Rev = prev15.reduce((s, o) => s + Number(o.total_price), 0);
+    const revenueTrend =
+      prev15Rev > 0
+        ? (((recent15Rev - prev15Rev) / prev15Rev) * 100).toFixed(1)
+        : 0;
 
     // --- Restock predictions ---
-    const restockAlerts = []
-    inventory.forEach(item => {
-      const itemLogs = usageLogs.filter(l => l.item_id === item.id)
+    const restockAlerts = [];
+    inventory.forEach((item) => {
+      const itemLogs = usageLogs.filter((l) => l.item_id === item.id);
       if (itemLogs.length >= 2) {
-        const sorted = [...itemLogs].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at))
-        const daysDiff = Math.max(differenceInDays(new Date(sorted[sorted.length - 1].logged_at), new Date(sorted[0].logged_at)), 1)
-        const totalUsed = itemLogs.reduce((s, l) => s + Number(l.quantity_used), 0)
-        const dailyUsage = totalUsed / daysDiff
+        const sorted = [...itemLogs].sort(
+          (a, b) => new Date(a.logged_at) - new Date(b.logged_at),
+        );
+        const daysDiff = Math.max(
+          differenceInDays(
+            new Date(sorted[sorted.length - 1].logged_at),
+            new Date(sorted[0].logged_at),
+          ),
+          1,
+        );
+        const totalUsed = itemLogs.reduce(
+          (s, l) => s + Number(l.quantity_used),
+          0,
+        );
+        const dailyUsage = totalUsed / daysDiff;
         if (dailyUsage > 0) {
-          const daysLeft = Math.floor(Number(item.current_stock) / dailyUsage)
+          const daysLeft = Math.floor(Number(item.current_stock) / dailyUsage);
           if (daysLeft <= 14) {
-            const suggestedReorder = Math.ceil(dailyUsage * 30)
+            const suggestedReorder = Math.ceil(dailyUsage * 30);
             restockAlerts.push({
               name: item.name,
               daysLeft,
               unit: item.unit,
               suggestedReorder,
               currentStock: Number(item.current_stock),
-            })
+            });
           }
         }
       }
-    })
-    restockAlerts.sort((a, b) => a.daysLeft - b.daysLeft)
+    });
+    restockAlerts.sort((a, b) => a.daysLeft - b.daysLeft);
 
     // --- Peak day prediction ---
-    const dowCounts = [0, 0, 0, 0, 0, 0, 0]
-    orders.forEach(o => { dowCounts[new Date(o.created_at).getDay()]++ })
-    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-    const peakDayIdx = dowCounts.indexOf(Math.max(...dowCounts))
-    const peakDay = dayNames[peakDayIdx]
+    const dowCounts = [0, 0, 0, 0, 0, 0, 0];
+    orders.forEach((o) => {
+      dowCounts[new Date(o.created_at).getDay()]++;
+    });
+    const dayNames = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
+    const peakDayIdx = dowCounts.indexOf(Math.max(...dowCounts));
+    const peakDay = dayNames[peakDayIdx];
 
     return {
       workloadPct,
@@ -171,167 +305,227 @@ export default function Dashboard() {
       restockAlerts: restockAlerts.slice(0, 3),
       peakDay,
       avgDailyOrders: Math.round(avgDailyOrders),
-    }
+    };
   }
 
   function generateSuggestions(inventory, usageLogs, orders, readyCount) {
-    const tips = []
+    const tips = [];
 
     // 1. Low stock / out of stock items - suggest buying
-    const lowItems = inventory.filter(i => Number(i.current_stock) <= Number(i.minimum_stock))
-    const outOfStock = inventory.filter(i => Number(i.current_stock) === 0)
+    const lowItems = inventory.filter(
+      (i) => Number(i.current_stock) <= Number(i.minimum_stock),
+    );
+    const outOfStock = inventory.filter((i) => Number(i.current_stock) === 0);
 
     if (outOfStock.length > 0) {
       tips.push({
-        type: 'critical',
+        type: "critical",
         icon: AlertTriangle,
-        title: 'Out of Stock!',
-        message: `Buy ${outOfStock.map(i => i.name).join(', ')} immediately — you have zero stock remaining.`,
-        action: 'Go to Inventory',
-        link: '/dashboard/inventory'
-      })
+        title: "Out of Stock!",
+        message: `Buy ${outOfStock.map((i) => i.name).join(", ")} immediately — you have zero stock remaining.`,
+        action: "Go to Inventory",
+        link: "/dashboard/inventory",
+      });
     }
 
     if (lowItems.length > 0 && outOfStock.length !== lowItems.length) {
-      const needRestock = lowItems.filter(i => Number(i.current_stock) > 0)
+      const needRestock = lowItems.filter((i) => Number(i.current_stock) > 0);
       if (needRestock.length > 0) {
         tips.push({
-          type: 'warning',
+          type: "warning",
           icon: ShoppingCart,
-          title: 'Restock Needed',
-          message: `Running low on ${needRestock.map(i => `${i.name} (${i.current_stock} ${i.unit} left)`).join(', ')}. Consider restocking soon.`,
-          action: 'Restock Now',
-          link: '/dashboard/inventory'
-        })
+          title: "Restock Needed",
+          message: `Running low on ${needRestock.map((i) => `${i.name} (${i.current_stock} ${i.unit} left)`).join(", ")}. Consider restocking soon.`,
+          action: "Restock Now",
+          link: "/dashboard/inventory",
+        });
       }
     }
 
     // 2. Stock prediction - items that will run out within 7 days
-    inventory.forEach(item => {
-      const itemLogs = usageLogs.filter(l => l.item_id === item.id)
+    inventory.forEach((item) => {
+      const itemLogs = usageLogs.filter((l) => l.item_id === item.id);
       if (itemLogs.length >= 2) {
-        const sorted = [...itemLogs].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at))
-        const daysDiff = Math.max(differenceInDays(new Date(sorted[sorted.length - 1].logged_at), new Date(sorted[0].logged_at)), 1)
-        const totalUsed = itemLogs.reduce((s, l) => s + Number(l.quantity_used), 0)
-        const dailyUsage = totalUsed / daysDiff
+        const sorted = [...itemLogs].sort(
+          (a, b) => new Date(a.logged_at) - new Date(b.logged_at),
+        );
+        const daysDiff = Math.max(
+          differenceInDays(
+            new Date(sorted[sorted.length - 1].logged_at),
+            new Date(sorted[0].logged_at),
+          ),
+          1,
+        );
+        const totalUsed = itemLogs.reduce(
+          (s, l) => s + Number(l.quantity_used),
+          0,
+        );
+        const dailyUsage = totalUsed / daysDiff;
         if (dailyUsage > 0) {
-          const daysLeft = Math.floor(Number(item.current_stock) / dailyUsage)
-          if (daysLeft <= 7 && daysLeft > 0 && !lowItems.find(l => l.id === item.id)) {
+          const daysLeft = Math.floor(Number(item.current_stock) / dailyUsage);
+          if (
+            daysLeft <= 7 &&
+            daysLeft > 0 &&
+            !lowItems.find((l) => l.id === item.id)
+          ) {
             tips.push({
-              type: 'warning',
+              type: "warning",
               icon: TrendingUp,
               title: `${item.name} Running Out`,
-              message: `Based on usage trends, ${item.name} will run out in ~${daysLeft} day${daysLeft !== 1 ? 's' : ''}. Buy more to avoid shortage.`,
-              action: 'View Predictions',
-              link: '/dashboard/inventory'
-            })
+              message: `Based on usage trends, ${item.name} will run out in ~${daysLeft} day${daysLeft !== 1 ? "s" : ""}. Buy more to avoid shortage.`,
+              action: "View Predictions",
+              link: "/dashboard/inventory",
+            });
           }
         }
       }
-    })
+    });
 
     // 3. Ready for pickup - notify customers
     if (readyCount > 0) {
       tips.push({
-        type: 'info',
+        type: "info",
         icon: Bell,
-        title: `${readyCount} Order${readyCount > 1 ? 's' : ''} Ready for Pickup`,
+        title: `${readyCount} Order${readyCount > 1 ? "s" : ""} Ready for Pickup`,
         message: `Send SMS notifications to customers about their completed laundry. Don't keep them waiting!`,
-        action: 'Send Notifications',
-        link: '/dashboard/sms'
-      })
+        action: "Send Notifications",
+        link: "/dashboard/sms",
+      });
     }
 
     // 4. Unpaid orders
-    const unpaidOrders = orders.filter(o => o.payment_status === 'unpaid' && o.status !== 'cancelled')
+    const unpaidOrders = orders.filter(
+      (o) => o.payment_status === "unpaid" && o.status !== "cancelled",
+    );
     if (unpaidOrders.length > 0) {
-      const unpaidTotal = unpaidOrders.reduce((s, o) => s + Number(o.total_price), 0)
+      const unpaidTotal = unpaidOrders.reduce(
+        (s, o) => s + Number(o.total_price),
+        0,
+      );
       tips.push({
-        type: 'warning',
+        type: "warning",
         icon: DollarSign,
-        title: `${unpaidOrders.length} Unpaid Order${unpaidOrders.length > 1 ? 's' : ''}`,
+        title: `${unpaidOrders.length} Unpaid Order${unpaidOrders.length > 1 ? "s" : ""}`,
         message: `You have ₱${unpaidTotal.toLocaleString()} in outstanding payments. Follow up with customers to collect.`,
-        action: 'View Orders',
-        link: '/dashboard/orders'
-      })
+        action: "View Orders",
+        link: "/dashboard/orders",
+      });
     }
 
     // 5. No inventory set up yet
     if (inventory.length === 0) {
       tips.push({
-        type: 'info',
+        type: "info",
         icon: Package,
-        title: 'Set Up Your Inventory',
-        message: 'Add your supplies like detergent sachets, fabric softener, plastic bags, and hangers to track stock levels and get restock alerts.',
-        action: 'Add Items',
-        link: '/dashboard/inventory'
-      })
+        title: "Set Up Your Inventory",
+        message:
+          "Add your supplies like detergent sachets, fabric softener, plastic bags, and hangers to track stock levels and get restock alerts.",
+        action: "Add Items",
+        link: "/dashboard/inventory",
+      });
     }
 
     // 6. If everything is fine
     if (tips.length === 0) {
       tips.push({
-        type: 'success',
+        type: "success",
         icon: CheckCircle2,
-        title: 'All Good!',
-        message: 'Everything is running smoothly. Inventory is stocked, no pending actions needed.',
+        title: "All Good!",
+        message:
+          "Everything is running smoothly. Inventory is stocked, no pending actions needed.",
         action: null,
-        link: null
-      })
+        link: null,
+      });
     }
 
-    return tips
+    return tips;
   }
 
   function getStatusColor(status) {
-    return `badge badge-${status}`
+    return `badge badge-${status}`;
   }
 
-  function getTimeRemaining(estimatedCompletion) {
-    if (!estimatedCompletion) return null
-    const now = new Date()
-    const est = new Date(estimatedCompletion)
-    const diffMs = est - now
-    if (diffMs <= 0) return 'Ready!'
-    const mins = Math.floor(diffMs / 60000)
-    const hrs = Math.floor(mins / 60)
-    const remainMins = mins % 60
-    if (hrs > 0) return `${hrs}h ${remainMins}m`
-    return `${remainMins}m`
+  function getTimeRemaining(order, settings) {
+    if (!order.stage_started_at) return "Waiting start";
+
+    const stageStart = new Date(order.stage_started_at).getTime();
+    const now = Date.now();
+
+    const durations = {
+      washing: (Number(settings.etawash) || 45) * 60000,
+      drying: (Number(settings.etadrying) || 40) * 60000,
+      folding: (Number(settings.etafolding) || 15) * 60000,
+    };
+
+    const duration = durations[order.status];
+    if (!duration) return "";
+
+    const remaining = stageStart + duration - now;
+
+    if (remaining <= 0) return "Advancing...";
+
+    const minutes = Math.floor(remaining / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+
+    return `${minutes}m ${seconds}s`;
   }
 
-  if (loading) return <div className="loading-spinner"><div className="spinner" /></div>
+  const paginatedOrders = recentOrders.slice(
+    page * PAGE_SIZE,
+    (page + 1) * PAGE_SIZE,
+  );
+
+  if (loading)
+    return (
+      <div className="loading-spinner">
+        <div className="spinner" />
+      </div>
+    );
 
   return (
     <>
       <div className="stats-grid">
         <div className="stat-card blue">
-          <div className="stat-icon"><ShoppingBag size={22} /></div>
+          <div className="stat-icon">
+            <ShoppingBag size={22} />
+          </div>
           <div className="stat-value">{stats.todayOrders}</div>
           <div className="stat-label">Today's Orders</div>
         </div>
         <div className="stat-card green">
-          <div className="stat-icon"><DollarSign size={22} /></div>
-          <div className="stat-value">₱{stats.todayRevenue.toLocaleString()}</div>
+          <div className="stat-icon">
+            <DollarSign size={22} />
+          </div>
+          <div className="stat-value">
+            ₱{stats.todayRevenue.toLocaleString()}
+          </div>
           <div className="stat-label">Today's Revenue</div>
         </div>
         <div className="stat-card cyan">
-          <div className="stat-icon"><Users size={22} /></div>
+          <div className="stat-icon">
+            <Users size={22} />
+          </div>
           <div className="stat-value">{stats.totalCustomers}</div>
           <div className="stat-label">Total Customers</div>
         </div>
         <div className="stat-card amber">
-          <div className="stat-icon"><Clock size={22} /></div>
+          <div className="stat-icon">
+            <Clock size={22} />
+          </div>
           <div className="stat-value">{stats.activeOrders}</div>
           <div className="stat-label">Active Orders</div>
         </div>
         <div className="stat-card green">
-          <div className="stat-icon"><CheckCircle2 size={22} /></div>
+          <div className="stat-icon">
+            <CheckCircle2 size={22} />
+          </div>
           <div className="stat-value">{stats.readyForPickup}</div>
           <div className="stat-label">Ready for Pickup</div>
         </div>
         <div className="stat-card red">
-          <div className="stat-icon"><AlertTriangle size={22} /></div>
+          <div className="stat-icon">
+            <AlertTriangle size={22} />
+          </div>
           <div className="stat-value">{stats.lowStockItems}</div>
           <div className="stat-label">Low Stock Items</div>
         </div>
@@ -341,40 +535,87 @@ export default function Dashboard() {
       {suggestions.length > 0 && (
         <div className="card" style={{ marginBottom: 24 }}>
           <div className="card-header">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Lightbulb size={18} style={{ color: '#f59e0b' }} />
+            <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Lightbulb size={18} style={{ color: "#f59e0b" }} />
               Suggestions & Alerts
             </h3>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {suggestions.map((tip, idx) => {
-              const TipIcon = tip.icon
+              const TipIcon = tip.icon;
               const colors = {
-                critical: { bg: '#fef2f2', border: '#fecaca', icon: '#dc2626', text: '#991b1b' },
-                warning: { bg: '#fffbeb', border: '#fde68a', icon: '#d97706', text: '#92400e' },
-                info: { bg: '#eef8fd', border: '#b3e0f5', icon: '#2EA7E0', text: '#1a7da8' },
-                success: { bg: '#ecfdf5', border: '#a7f3d0', icon: '#059669', text: '#065f46' },
-              }
-              const c = colors[tip.type] || colors.info
+                critical: {
+                  bg: "#fef2f2",
+                  border: "#fecaca",
+                  icon: "#dc2626",
+                  text: "#991b1b",
+                },
+                warning: {
+                  bg: "#fffbeb",
+                  border: "#fde68a",
+                  icon: "#d97706",
+                  text: "#92400e",
+                },
+                info: {
+                  bg: "#eef8fd",
+                  border: "#b3e0f5",
+                  icon: "#2EA7E0",
+                  text: "#1a7da8",
+                },
+                success: {
+                  bg: "#ecfdf5",
+                  border: "#a7f3d0",
+                  icon: "#059669",
+                  text: "#065f46",
+                },
+              };
+              const c = colors[tip.type] || colors.info;
               return (
-                <div key={idx} style={{
-                  display: 'flex', alignItems: 'center', gap: 14,
-                  padding: '14px 16px', borderRadius: 10,
-                  background: c.bg, border: `1px solid ${c.border}`,
-                }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: 8,
-                    background: 'white', border: `1px solid ${c.border}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0,
-                  }}>
+                <div
+                  key={idx}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                    padding: "14px 16px",
+                    borderRadius: 10,
+                    background: c.bg,
+                    border: `1px solid ${c.border}`,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 8,
+                      background: "white",
+                      border: `1px solid ${c.border}`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
                     <TipIcon size={18} style={{ color: c.icon }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: c.text, marginBottom: 2 }}>
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 14,
+                        color: c.text,
+                        marginBottom: 2,
+                      }}
+                    >
                       {tip.title}
                     </div>
-                    <div style={{ fontSize: 13, color: '#4b5563', lineHeight: 1.5 }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#4b5563",
+                        lineHeight: 1.5,
+                      }}
+                    >
                       {tip.message}
                     </div>
                   </div>
@@ -383,16 +624,21 @@ export default function Dashboard() {
                       className="btn btn-sm"
                       onClick={() => navigate(tip.link)}
                       style={{
-                        background: 'white', border: `1px solid ${c.border}`,
-                        color: c.text, fontWeight: 600, flexShrink: 0,
-                        display: 'flex', alignItems: 'center', gap: 6,
+                        background: "white",
+                        border: `1px solid ${c.border}`,
+                        color: c.text,
+                        fontWeight: 600,
+                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
                       }}
                     >
                       {tip.action} <ArrowRight size={14} />
                     </button>
                   )}
                 </div>
-              )
+              );
             })}
           </div>
         </div>
@@ -400,46 +646,81 @@ export default function Dashboard() {
 
       {/* AI Forecasting Overview */}
       {forecasts && (
-        <div className="card" style={{ marginBottom: 24, overflow: 'hidden' }}>
+        <div className="card" style={{ marginBottom: 24, overflow: "hidden" }}>
           <div className="card-header">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Brain size={18} style={{ color: '#8b5cf6' }} />
+            <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Brain size={18} style={{ color: "#8b5cf6" }} />
               AI Forecasting Overview
             </h3>
-            <span className="badge" style={{ background: '#f3f0ff', color: '#7c3aed', fontSize: 11 }}>
+            <span
+              className="badge"
+              style={{ background: "#f3f0ff", color: "#7c3aed", fontSize: 11 }}
+            >
               <Zap size={12} /> Predictions
             </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {/* Predicted Workload */}
             <div className="forecast-row forecast-workload">
-              <div className="forecast-icon-wrap" style={{ background: 'rgba(139,92,246,0.12)', color: '#8b5cf6' }}>
+              <div
+                className="forecast-icon-wrap"
+                style={{
+                  background: "rgba(139,92,246,0.12)",
+                  color: "#8b5cf6",
+                }}
+              >
                 <BarChart2 size={20} />
               </div>
               <div className="forecast-content">
                 <span className="forecast-label">Predicted Workload:</span>
-                <strong className="forecast-value" style={{ color: '#8b5cf6' }}>{forecasts.workloadPct}%</strong>
-                <span className={`forecast-badge ${forecasts.workloadPct >= 80 ? 'high' : forecasts.workloadPct >= 50 ? 'moderate' : 'normal'}`}>
+                <strong className="forecast-value" style={{ color: "#8b5cf6" }}>
+                  {forecasts.workloadPct}%
+                </strong>
+                <span
+                  className={`forecast-badge ${forecasts.workloadPct >= 80 ? "high" : forecasts.workloadPct >= 50 ? "moderate" : "normal"}`}
+                >
                   {forecasts.workloadLevel}
                 </span>
               </div>
               <div className="forecast-bar-track">
-                <div className="forecast-bar-fill" style={{ width: `${forecasts.workloadPct}%`, background: forecasts.workloadPct >= 80 ? '#ef4444' : forecasts.workloadPct >= 50 ? '#f59e0b' : '#10b981' }} />
+                <div
+                  className="forecast-bar-fill"
+                  style={{
+                    width: `${forecasts.workloadPct}%`,
+                    background:
+                      forecasts.workloadPct >= 80
+                        ? "#ef4444"
+                        : forecasts.workloadPct >= 50
+                          ? "#f59e0b"
+                          : "#10b981",
+                  }}
+                />
               </div>
             </div>
 
             {/* Predicted Revenue */}
             <div className="forecast-row forecast-revenue">
-              <div className="forecast-icon-wrap" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>
+              <div
+                className="forecast-icon-wrap"
+                style={{
+                  background: "rgba(16,185,129,0.12)",
+                  color: "#10b981",
+                }}
+              >
                 <TrendingUp size={20} />
               </div>
               <div className="forecast-content">
                 <span className="forecast-label">Predicted Revenue:</span>
-                <strong className="forecast-value" style={{ color: '#10b981' }}>₱{forecasts.predictedMonthlyRevenue.toLocaleString()}</strong>
+                <strong className="forecast-value" style={{ color: "#10b981" }}>
+                  ₱{forecasts.predictedMonthlyRevenue.toLocaleString()}
+                </strong>
                 <span className="forecast-sublabel">Next Month</span>
                 {forecasts.revenueTrend !== 0 && (
-                  <span className={`forecast-trend ${forecasts.revenueTrend > 0 ? 'up' : 'down'}`}>
-                    {forecasts.revenueTrend > 0 ? '↑' : '↓'} {Math.abs(forecasts.revenueTrend)}%
+                  <span
+                    className={`forecast-trend ${forecasts.revenueTrend > 0 ? "up" : "down"}`}
+                  >
+                    {forecasts.revenueTrend > 0 ? "↑" : "↓"}{" "}
+                    {Math.abs(forecasts.revenueTrend)}%
                   </span>
                 )}
               </div>
@@ -447,49 +728,104 @@ export default function Dashboard() {
 
             {/* Peak Day */}
             <div className="forecast-row forecast-peak">
-              <div className="forecast-icon-wrap" style={{ background: 'rgba(46,167,224,0.12)', color: '#2EA7E0' }}>
+              <div
+                className="forecast-icon-wrap"
+                style={{
+                  background: "rgba(46,167,224,0.12)",
+                  color: "#2EA7E0",
+                }}
+              >
                 <Clock size={20} />
               </div>
               <div className="forecast-content">
                 <span className="forecast-label">Busiest Day:</span>
-                <strong className="forecast-value" style={{ color: '#2EA7E0' }}>{forecasts.peakDay}</strong>
-                <span className="forecast-sublabel">~{forecasts.avgDailyOrders} orders/day avg</span>
+                <strong className="forecast-value" style={{ color: "#2EA7E0" }}>
+                  {forecasts.peakDay}
+                </strong>
+                <span className="forecast-sublabel">
+                  ~{forecasts.avgDailyOrders} orders/day avg
+                </span>
               </div>
             </div>
 
             {/* Restock Alerts */}
-            {forecasts.restockAlerts.length > 0 && forecasts.restockAlerts.map((item, i) => (
-              <div className="forecast-row forecast-restock" key={i}>
-                <div className="forecast-icon-wrap" style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>
-                  <AlertTriangle size={20} />
+            {forecasts.restockAlerts.length > 0 &&
+              forecasts.restockAlerts.map((item, i) => (
+                <div className="forecast-row forecast-restock" key={i}>
+                  <div
+                    className="forecast-icon-wrap"
+                    style={{
+                      background: "rgba(245,158,11,0.12)",
+                      color: "#f59e0b",
+                    }}
+                  >
+                    <AlertTriangle size={20} />
+                  </div>
+                  <div className="forecast-content">
+                    <span className="forecast-label">Restock Alert:</span>
+                    <span className="forecast-restock-text">
+                      <strong>{item.name}</strong> will run out in{" "}
+                      <strong>
+                        {item.daysLeft} day{item.daysLeft !== 1 ? "s" : ""}
+                      </strong>
+                    </span>
+                    <span className="forecast-sublabel">
+                      Reorder ~{item.suggestedReorder} {item.unit}
+                    </span>
+                  </div>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => navigate("/dashboard/inventory")}
+                    style={{ flexShrink: 0, fontSize: 12 }}
+                  >
+                    Restock <ArrowRight size={13} />
+                  </button>
                 </div>
-                <div className="forecast-content">
-                  <span className="forecast-label">Restock Alert:</span>
-                  <span className="forecast-restock-text">
-                    <strong>{item.name}</strong> will run out in <strong>{item.daysLeft} day{item.daysLeft !== 1 ? 's' : ''}</strong>
-                  </span>
-                  <span className="forecast-sublabel">Reorder ~{item.suggestedReorder} {item.unit}</span>
-                </div>
-                <button className="btn btn-sm" onClick={() => navigate('/dashboard/inventory')} style={{ flexShrink: 0, fontSize: 12 }}>
-                  Restock <ArrowRight size={13} />
-                </button>
-              </div>
-            ))}
+              ))}
           </div>
         </div>
       )}
+      <div style={{ marginBottom: 10 }}>
+        {["weekly", "monthly", "yearly"].map((r) => (
+          <button
+            key={r}
+            className={`btn btn-sm ${range === r ? "btn-primary" : ""}`}
+            onClick={() => setRange(r)}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
 
       <div className="charts-grid">
         <div className="card">
           <div className="card-header">
-            <h3>Weekly Orders</h3>
+            <h3>{range.charAt(0).toUpperCase() + range.slice(1)} Orders</h3>
           </div>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={weeklyData}>
-              <XAxis dataKey="day" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-              <YAxis stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
+              <XAxis
+                dataKey="label"
+                stroke="#64748b"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                stroke="#64748b"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+              />
               <Tooltip
-                contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, color: '#111827', boxShadow: '0 4px 16px rgba(0,0,0,0.08)', fontSize: 13 }}
+                contentStyle={{
+                  background: "#fff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 10,
+                  color: "#111827",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+                  fontSize: 13,
+                }}
               />
               <Bar dataKey="orders" fill="#3b82f6" radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -498,7 +834,9 @@ export default function Dashboard() {
 
         <div className="card">
           <div className="card-header">
-            <h3>Revenue Trend</h3>
+            <h3>
+              {range.charAt(0).toUpperCase() + range.slice(1)} Revenue Trend
+            </h3>
           </div>
           <ResponsiveContainer width="100%" height={240}>
             <AreaChart data={weeklyData}>
@@ -508,13 +846,37 @@ export default function Dashboard() {
                   <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="day" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-              <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-              <Tooltip
-                contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, color: '#111827', boxShadow: '0 4px 16px rgba(0,0,0,0.08)', fontSize: 13 }}
-                formatter={(value) => [`₱${value.toLocaleString()}`, 'Revenue']}
+              <XAxis
+                dataKey="label"
+                stroke="#9ca3af"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
               />
-              <Area type="monotone" dataKey="revenue" stroke="#10b981" fill="url(#revenueGrad)" strokeWidth={2} />
+              <YAxis
+                stroke="#9ca3af"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "#fff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 10,
+                  color: "#111827",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+                  fontSize: 13,
+                }}
+                formatter={(value) => [`₱${value.toLocaleString()}`, "Revenue"]}
+              />
+              <Area
+                type="monotone"
+                dataKey="revenue"
+                stroke="#10b981"
+                fill="url(#revenueGrad)"
+                strokeWidth={2}
+              />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -530,7 +892,7 @@ export default function Dashboard() {
               <tr>
                 <th>Order #</th>
                 <th>Customer</th>
-                <th>Service</th>
+
                 <th>Status</th>
                 <th>Time Left</th>
                 <th>Amount</th>
@@ -538,26 +900,85 @@ export default function Dashboard() {
             </thead>
             <tbody>
               {recentOrders.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>No orders yet</td></tr>
-              ) : recentOrders.map(order => (
-                <tr key={order.id}>
-                  <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{order.order_number}</td>
-                  <td>{order.customers?.name || 'Walk-in'}</td>
-                  <td>{order.service_types?.name}</td>
-                  <td><span className={getStatusColor(order.status)}>{order.status.replace('_', ' ')}</span></td>
-                  <td>
-                    {order.status === 'released' || order.status === 'cancelled'
-                      ? '—'
-                      : <span style={{ color: 'var(--primary-light)', fontWeight: 600 }}>{getTimeRemaining(order.estimated_completion) || '—'}</span>
-                    }
+                <tr>
+                  <td
+                    colSpan={6}
+                    style={{
+                      textAlign: "center",
+                      padding: 40,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    No orders yet
                   </td>
-                  <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₱{Number(order.total_price).toLocaleString()}</td>
                 </tr>
-              ))}
+              ) : (
+                paginatedOrders.map((order) => (
+                  <tr key={order.id}>
+                    <td
+                      style={{ fontWeight: 600, color: "var(--text-primary)" }}
+                    >
+                      {order.order_number}
+                    </td>
+                    <td>{order.customers?.name || "Walk-in"}</td>
+
+                    <td>
+                      <span className={getStatusColor(order.status)}>
+                        {order.status.replace("_", " ")}
+                      </span>
+                    </td>
+                    <td>
+                      {order.status === "released" ||
+                      order.status === "cancelled" ? (
+                        "—"
+                      ) : (
+                        <span
+                          style={{
+                            color: "var(--primary-light)",
+                            fontWeight: 600,
+                          }}
+                        >
+                          <span>
+                            {getTimeRemaining(order, settings)} {tick && ""}
+                          </span>
+                        </span>
+                      )}
+                    </td>
+                    <td
+                      style={{ fontWeight: 600, color: "var(--text-primary)" }}
+                    >
+                      ₱{Number(order.total_price).toLocaleString()}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginTop: 10,
+            }}
+          >
+            <button
+              className="btn btn-sm"
+              disabled={page === 0}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              Previous
+            </button>
+
+            <button
+              className="btn btn-sm"
+              disabled={(page + 1) * PAGE_SIZE >= recentOrders.length}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
     </>
-  )
+  );
 }
