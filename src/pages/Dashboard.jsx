@@ -112,21 +112,18 @@ export default function Dashboard() {
     }
 
     if (range === "yearly") {
-      for (let i = 11; i >= 0; i--) {
-        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const currentYear = new Date().getFullYear();
+      const startYear = currentYear - 4; // 🔥 last 5 years only
 
-        const monthOrders = orders.filter((o) => {
-          const d = new Date(o.created_at);
-          return (
-            d.getMonth() === date.getMonth() &&
-            d.getFullYear() === date.getFullYear()
-          );
-        });
+      for (let year = startYear; year <= currentYear; year++) {
+        const yearOrders = orders.filter(
+          (o) => new Date(o.created_at).getFullYear() === year,
+        );
 
         data.push({
-          label: format(date, "MMM"),
-          orders: monthOrders.length,
-          revenue: monthOrders.reduce((s, o) => s + Number(o.total_price), 0),
+          label: String(year),
+          orders: yearOrders.length,
+          revenue: yearOrders.reduce((s, o) => s + Number(o.total_price), 0),
         });
       }
     }

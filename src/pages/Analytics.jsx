@@ -182,8 +182,17 @@ export default function Analytics() {
 
     // ✅ PRIORITY: custom range
     if (customRange.start && customRange.end) {
-      startDate = new Date(customRange.start).toISOString();
-      endDate = new Date(customRange.end).toISOString();
+      const rawStart = new Date(customRange.start);
+      const rawEnd = new Date(customRange.end);
+
+      if (range === "yearly") {
+        // 🔥 FIX: align to full years
+        startDate = new Date(rawStart.getFullYear(), 0, 1).toISOString();
+        endDate = new Date(rawEnd.getFullYear(), 11, 31).toISOString();
+      } else {
+        startDate = rawStart.toISOString();
+        endDate = rawEnd.toISOString();
+      }
     } else {
       if (range === "weekly") {
         startDate = subDays(now, 7).toISOString();
@@ -217,6 +226,13 @@ export default function Analytics() {
     setOrders(orderData);
     setExpenses(expenseData);
 
+    // 🔥 FETCH ALL ORDERS (for previous period comparison)
+    const { data: allData } = await supabase
+      .from("orders")
+      .select("created_at, total_price, payment_status");
+
+    setAllOrders(allData || []);
+
     // 🔥 NEW: fetch ALL orders for forecasting (independent)
     const { data: forecastData } = await supabase
       .from("orders")
@@ -233,27 +249,34 @@ export default function Analytics() {
     const avgOrderValue =
       orderData.length > 0 ? totalRevenue / orderData.length : 0;
 
-    let prevStart;
+    // 🔥 CALCULATE CURRENT PERIOD RANGE
+    const currentStart = new Date(startDate);
+    const currentEnd = new Date(endDate);
 
-    if (range === "weekly") {
-      prevStart = subDays(now, 14).toISOString();
-    } else if (range === "monthly") {
-      prevStart = subDays(now, 60).toISOString();
-    } else {
-      prevStart = subDays(now, 730).toISOString();
-    }
-    const prevOrders = orderData.filter(
-      (o) =>
-        o.created_at >= prevStart &&
-        o.created_at < startDate &&
-        o.payment_status === "paid",
-    );
+    // 🔥 GET SAME LENGTH PREVIOUS PERIOD
+    const diff = currentEnd - currentStart;
+
+    const prevStartDate = new Date(currentStart.getTime() - diff);
+    const prevEndDate = new Date(currentStart.getTime());
+
+    // 🔥 USE ALL ORDERS (NOT FILTERED!)
+    const prevOrders = (allData || []).filter((o) => {
+      const d = new Date(o.created_at);
+      return (
+        d >= prevStartDate && d < prevEndDate && o.payment_status === "paid"
+      );
+    });
+
     const prevRevenue = prevOrders.reduce(
       (s, o) => s + Number(o.total_price),
       0,
     );
     const revenueChange =
-      prevRevenue > 0 ? ((totalRevenue - prevRevenue) / prevRevenue) * 100 : 0;
+      prevRevenue === 0
+        ? totalRevenue > 0
+          ? 100
+          : 0
+        : ((totalRevenue - prevRevenue) / prevRevenue) * 100;
 
     setStats({
       totalRevenue,
@@ -275,9 +298,17 @@ export default function Analytics() {
     let start, end;
 
     if (customRange.start && customRange.end) {
-      // ✅ CUSTOM RANGE
-      start = new Date(customRange.start);
-      end = new Date(customRange.end);
+      const rawStart = new Date(customRange.start);
+      const rawEnd = new Date(customRange.end);
+
+      if (range === "yearly") {
+        // 🔥 ALIGN TO FULL YEARS
+        start = new Date(rawStart.getFullYear(), 0, 1);
+        end = new Date(rawEnd.getFullYear(), 11, 31);
+      } else {
+        start = rawStart;
+        end = rawEnd;
+      }
     } else {
       // ✅ TRUE DEFAULT BEHAVIOR
       const now = new Date();
@@ -290,8 +321,23 @@ export default function Analytics() {
         start = new Date(now.getFullYear(), 0, 1);
         end = new Date(now.getFullYear(), 11, 31);
       } else {
-        start = new Date(now.getFullYear() - 5, 0, 1); // 🔥 last 6 years
-        end = new Date(now.getFullYear(), 11, 31);
+        const currentYear = now.getFullYear();
+
+        // 🔥 Get earliest year from your data (orders + expenses)
+        const allDates = [
+          ...orders.map((o) => new Date(o.created_at)),
+          ...expenses.map((e) => new Date(e.expense_date)),
+        ];
+
+        const earliestYear = allDates.length
+          ? Math.min(...allDates.map((d) => d.getFullYear()))
+          : currentYear;
+
+        // 🔥 Ensure minimum of 5 years BUT allow older data
+        const startYear = Math.min(earliestYear, currentYear - 4);
+
+        start = new Date(startYear, 0, 1);
+        end = new Date(currentYear, 11, 31);
       }
     }
 
@@ -303,13 +349,18 @@ export default function Analytics() {
       let label;
 
       if (customRange.start && customRange.end) {
-        // 🔥 CUSTOM RANGE MODE
-        if (range === "weekly") {
-          label = format(cursor, "EEE");
-        } else if (range === "monthly") {
-          label = format(cursor, "MMM yyyy");
-        } else {
+        const startYear = new Date(customRange.start).getFullYear();
+        const endYear = new Date(customRange.end).getFullYear();
+
+        // 🔥 AUTO-DETECT PROPER VIEW BASED ON RANGE LENGTH
+        const diffYears = endYear - startYear;
+
+        if (diffYears >= 1) {
+          // 👉 MULTI-YEAR → show YEAR
           label = format(cursor, "yyyy");
+        } else {
+          // 👉 SAME YEAR → show MONTH
+          label = format(cursor, "MMM");
         }
       } else {
         // DEFAULT MODE
@@ -326,12 +377,23 @@ export default function Analytics() {
 
       let uniqueKey;
 
-      if (range === "weekly") {
-        uniqueKey = format(cursor, "yyyy-MM-dd");
-      } else if (range === "monthly") {
-        uniqueKey = format(cursor, "yyyy-MM"); // 🔥 IMPORTANT
+      if (customRange.start && customRange.end) {
+        const startYear = new Date(customRange.start).getFullYear();
+        const endYear = new Date(customRange.end).getFullYear();
+
+        if (endYear - startYear >= 1) {
+          uniqueKey = format(cursor, "yyyy");
+        } else {
+          uniqueKey = format(cursor, "yyyy-MM");
+        }
       } else {
-        uniqueKey = format(cursor, "yyyy");
+        if (range === "weekly") {
+          uniqueKey = format(cursor, "yyyy-MM-dd");
+        } else if (range === "monthly") {
+          uniqueKey = format(cursor, "yyyy-MM");
+        } else {
+          uniqueKey = format(cursor, "yyyy");
+        }
       }
 
       if (!result.find((r) => r.key === uniqueKey)) {
@@ -362,15 +424,26 @@ export default function Analytics() {
 
       let key;
 
-      if (range === "weekly") {
-        key = format(d, "yyyy-MM-dd");
-      } else if (range === "monthly") {
-        key = format(d, "yyyy-MM");
+      if (customRange.start && customRange.end) {
+        const startYear = new Date(customRange.start).getFullYear();
+        const endYear = new Date(customRange.end).getFullYear();
+
+        if (endYear - startYear >= 1) {
+          key = format(d, "yyyy"); // 🔥 YEAR MODE
+        } else {
+          key = format(d, "yyyy-MM"); // 🔥 MONTH MODE
+        }
       } else {
-        key = format(d, "yyyy");
+        if (range === "weekly") {
+          key = format(d, "yyyy-MM-dd");
+        } else if (range === "monthly") {
+          key = format(d, "yyyy-MM");
+        } else {
+          key = format(d, "yyyy");
+        }
       }
 
-      const item = result.find((r) => r.key.startsWith(key));
+      const item = result.find((r) => r.key === key); // 🔥 FIXED
       if (item) item.revenue += Number(o.total_price);
     });
 
@@ -388,7 +461,7 @@ export default function Analytics() {
         key = format(d, "yyyy");
       }
 
-      const item = result.find((r) => r.key.startsWith(key));
+      const item = result.find((r) => r.key === key);
       if (item) item.expenses += Number(e.amount);
     });
 
@@ -764,7 +837,6 @@ export default function Analytics() {
                   }}
                 >
                   Order Forecast
-                 
                 </h3>
                 <p
                   style={{
