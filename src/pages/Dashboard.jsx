@@ -699,7 +699,7 @@ export default function Dashboard() {
           <div className="card-header">
             <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Brain size={18} style={{ color: "#8b5cf6" }} />
-              AI Forecasting Overview
+              Decision Support Overview
             </h3>
             <span
               className="badge"
