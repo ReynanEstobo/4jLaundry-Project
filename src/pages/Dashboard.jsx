@@ -30,6 +30,7 @@ import {
 } from "recharts";
 import { supabase } from "../lib/supabase";
 import { useRealtime } from "../lib/useRealtime";
+import { askGemini } from "../services/geminiService";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -42,12 +43,15 @@ export default function Dashboard() {
     lowStockItems: 0,
   });
   const [recentOrders, setRecentOrders] = useState([]);
+  const [aiInsights, setAiInsights] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
   const [weeklyData, setWeeklyData] = useState([]);
   const [settings, setSettings] = useState({});
   const [range, setRange] = useState("weekly");
   const [suggestions, setSuggestions] = useState([]);
   const [forecasts, setForecasts] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [aiUsage, setAiUsage] = useState({ count: 0, limit: 20 });
 
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
@@ -57,8 +61,12 @@ export default function Dashboard() {
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   useEffect(() => {
-    loadDashboard();
+    loadDashboard(false);
   }, [range, page]);
+
+  useEffect(() => {
+    loadDashboard(true); // ✅ run AI only once
+  }, []);
 
   const [tick, setTick] = useState(0);
 
@@ -71,7 +79,7 @@ export default function Dashboard() {
   }, []);
 
   // Realtime: refresh dashboard when orders or inventory change
-  const loadDashboardCb = useCallback(() => loadDashboard(), []);
+  const loadDashboardCb = useCallback(() => loadDashboard(false), []);
   useRealtime(["orders", "customers", "inventory_items"], loadDashboardCb);
 
   function buildChartData(orders, range) {
@@ -131,7 +139,7 @@ export default function Dashboard() {
     return data;
   }
 
-  async function loadDashboard() {
+  async function loadDashboard(runAI = true) {
     if (isInitialLoad) setLoading(true);
     setLoading(false);
     setIsInitialLoad(false);
@@ -223,6 +231,56 @@ export default function Dashboard() {
     // Generate AI forecasts
     const fc = generateForecasts(orders, inventory, usageLogs);
     setForecasts(fc);
+
+    // 🔥 GEMINI AI (Decision Support Layer)
+    // 🔥 Gemini AI (Decision Support Layer - optimized)
+    if (runAI && !aiInsights) {
+      try {
+        setAiLoading(true);
+
+        const aiText = await askGemini(`
+You are a business decision support AI for a laundry shop.
+
+Data:
+- Total Orders: ${orders.length}
+- Today's Revenue: ${todayRevenue}
+- Active Orders: ${activeOrders}
+- Ready for Pickup: ${readyForPickup}
+- Low Stock Items: ${lowStockItems}
+
+Forecast:
+- Workload: ${fc.workloadLevel} (${fc.workloadPct}%)
+- Predicted Monthly Revenue: ${fc.predictedMonthlyRevenue}
+- Peak Day: ${fc.peakDay}
+
+Give exactly 3 insights ONLY using this format:
+
+Operational Recommendation: ...
+Inventory Recommendation: ...
+Revenue Improvement Idea: ...
+
+Do NOT use bullet points.
+Do NOT use markdown (**).
+Do NOT add extra text.
+`);
+
+        if (aiText) {
+          setAiInsights(aiText);
+        } else {
+          setAiInsights(
+            "AI insights temporarily unavailable. Quota Has Been Reached Today.",
+          );
+        }
+      } catch (error) {
+        console.error("AI error:", error);
+
+        setAiInsights(
+          "AI insights temporarily unavailable due to API limit. Please try again later.",
+        );
+      } finally {
+        setAiLoading(false);
+      }
+    }
 
     setWeeklyData(buildChartData(orders, range));
     setLoading(false);
@@ -832,6 +890,125 @@ export default function Dashboard() {
                 </div>
               ))}
           </div>
+        </div>
+      )}
+      {(aiLoading || aiInsights) && (
+        <div
+          className="card"
+          style={{
+            marginBottom: 24,
+            border: "1px solid #e9d5ff",
+            background: "linear-gradient(135deg, #faf5ff, #ffffff)",
+          }}
+        >
+          {/* HEADER */}
+          <div className="card-header">
+            <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Brain size={18} style={{ color: "#8b5cf6" }} />
+              AI Insights
+            </h3>
+
+            <span
+              className="badge"
+              style={{
+                background: "#ede9fe",
+                color: "#7c3aed",
+                fontSize: 11,
+              }}
+            >
+              Smart Analysis
+            </span>
+          </div>
+
+          {/* CONTENT */}
+          {aiLoading ? (
+            // 🔥 LOADING SKELETON
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  style={{
+                    height: 60,
+                    borderRadius: 12,
+                    background:
+                      "linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%)",
+                    backgroundSize: "200% 100%",
+                    animation: "shimmer 1.5s infinite",
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            // 🔥 YOUR EXISTING AI CONTENT
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {aiInsights
+                .split(
+                  /(?=Operational Recommendation:|Inventory Recommendation:|Revenue Improvement Idea:)/,
+                )
+                .map((line, i) => {
+                  if (!line.trim()) return null;
+
+                  const clean = line.replace(/\*\*/g, "").trim();
+
+                  let icon = Lightbulb;
+                  let color = "#8b5cf6";
+                  let bg = "#faf5ff";
+
+                  if (clean.toLowerCase().includes("operational")) {
+                    icon = Zap;
+                    color = "#3b82f6";
+                    bg = "#eff6ff";
+                  } else if (clean.toLowerCase().includes("inventory")) {
+                    icon = Package;
+                    color = "#f59e0b";
+                    bg = "#fffbeb";
+                  } else if (clean.toLowerCase().includes("revenue")) {
+                    icon = TrendingUp;
+                    color = "#10b981";
+                    bg = "#ecfdf5";
+                  }
+
+                  const Icon = icon;
+
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        gap: 12,
+                        padding: "14px 16px",
+                        borderRadius: 12,
+                        background: bg,
+                        border: "1px solid rgba(0,0,0,0.05)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 10,
+                          background: "white",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Icon size={18} style={{ color }} />
+                      </div>
+
+                      <div>
+                        <div style={{ fontWeight: 600, color }}>
+                          {clean.split(":")[0]}
+                        </div>
+                        <div style={{ fontSize: 13.5, color: "#374151" }}>
+                          {clean.split(":").slice(1).join(":")}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
         </div>
       )}
       <div style={{ marginBottom: 10 }}>

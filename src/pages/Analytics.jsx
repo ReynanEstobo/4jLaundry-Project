@@ -22,6 +22,7 @@ import {
 } from "recharts";
 import { supabase } from "../lib/supabase";
 import { useRealtime } from "../lib/useRealtime";
+import { askGemini } from "../services/geminiService";
 
 const COLORS = [
   "#3b82f6",
@@ -158,6 +159,7 @@ export default function Analytics() {
   const [forecastOrders, setForecastOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({});
+  const [aiExplanation, setAiExplanation] = useState("");
 
   // Sub-filters for each chart
   // daily | weekly | monthly
@@ -548,6 +550,31 @@ export default function Analytics() {
 
   const descriptiveData = getDescriptiveData();
   const predictiveData = getPredictiveData();
+  useEffect(() => {
+    async function explainForecast() {
+      if (!predictiveData.length) return;
+
+      const sample = predictiveData.slice(0, 7);
+
+      const text = await askGemini(`
+You are a data analyst.
+
+Here is predicted order data:
+${JSON.stringify(sample)}
+
+Explain:
+- trend (increasing/decreasing/stable)
+- possible reason
+- business recommendation
+
+Keep it simple.
+    `);
+
+      if (text) setAiExplanation(text);
+    }
+
+    explainForecast();
+  }, [predictiveData]);
   const splitIndex = predictiveData.findIndex((d) => d.isPrediction);
   const splitDate = splitIndex >= 0 ? predictiveData[splitIndex].date : null;
 
@@ -899,6 +926,14 @@ export default function Analytics() {
               </BarChart>
             </ResponsiveContainer>
           </div>
+          {aiExplanation && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-header">
+                <h3>AI Explanation</h3>
+              </div>
+              <p style={{ fontSize: 14 }}>{aiExplanation}</p>
+            </div>
+          )}
         </div>
       </div>
     </>
