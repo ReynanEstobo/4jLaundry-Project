@@ -44,6 +44,7 @@ export default function Dashboard() {
   });
   const [recentOrders, setRecentOrders] = useState([]);
   const [aiInsights, setAiInsights] = useState("");
+  const [currentAIModel, setCurrentAIModel] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [weeklyData, setWeeklyData] = useState([]);
   const [settings, setSettings] = useState({});
@@ -238,7 +239,7 @@ export default function Dashboard() {
       try {
         setAiLoading(true);
 
-        const aiText = await askGemini(`
+        const aiResult = await askGemini(`
 You are a business decision support AI for a laundry shop.
 
 Data:
@@ -264,12 +265,15 @@ Do NOT use markdown (**).
 Do NOT add extra text.
 `);
 
-        if (aiText) {
-          setAiInsights(aiText);
+        if (aiResult) {
+          setAiInsights(aiResult.text);
+          setCurrentAIModel(aiResult.model);
         } else {
           setAiInsights(
-            "AI insights temporarily unavailable. Quota Has Been Reached Today.",
+            "AI insights temporarily unavailable. All AI models have reached their limits.",
           );
+
+          setCurrentAIModel("No Active Model");
         }
       } catch (error) {
         console.error("AI error:", error);
@@ -916,7 +920,7 @@ Do NOT add extra text.
                 fontSize: 11,
               }}
             >
-              Smart Analysis
+              {currentAIModel || "Loading Model..."}
             </span>
           </div>
 
