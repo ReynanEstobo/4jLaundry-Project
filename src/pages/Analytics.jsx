@@ -1,4 +1,4 @@
-import { addDays, format, subDays } from "date-fns";
+import { format, subDays } from "date-fns";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -7,7 +7,7 @@ import {
   ShoppingBag,
   TrendingUp,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -23,29 +23,6 @@ import {
 import { supabase } from "../lib/supabase";
 import { useRealtime } from "../lib/useRealtime";
 import { askGemini } from "../services/geminiService";
-
-const COLORS = [
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#06b6d4",
-  "#8b5cf6",
-  "#ef4444",
-  "#ec4899",
-];
-
-// ─── Simple linear regression for prediction ──────────────────────────────────
-function linearRegression(points) {
-  const n = points.length;
-  if (n === 0) return { slope: 0, intercept: 0 };
-  const sumX = points.reduce((s, p) => s + p.x, 0);
-  const sumY = points.reduce((s, p) => s + p.y, 0);
-  const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
-  const sumX2 = points.reduce((s, p) => s + p.x * p.x, 0);
-  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX) || 0;
-  const intercept = (sumY - slope * sumX) / n;
-  return { slope, intercept };
-}
 
 // ─── Custom tooltip ────────────────────────────────────────────────────────────
 const CustomTooltip = ({ active, payload, label }) => {
@@ -160,6 +137,10 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({});
   const [aiExplanation, setAiExplanation] = useState("");
+  const [aiForecastData, setAiForecastData] = useState([]);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastModel, setForecastModel] = useState("");
+  const [lastForecastKey, setLastForecastKey] = useState("");
 
   // Sub-filters for each chart
   // daily | weekly | monthly
@@ -168,14 +149,20 @@ export default function Analytics() {
   useEffect(() => {
     loadAnalytics();
   }, [range, customRange]);
+  useEffect(() => {
+    if (!forecastOrders.length) {
+      setForecastLoading(false);
+      return;
+    }
 
-  const loadAnalyticsCb = useCallback(
-    () => loadAnalytics(),
-    [range, customRange],
-  );
-  useRealtime(["orders", "expenses"], loadAnalyticsCb);
+    generateAIForecast();
+  }, [forecastOrders.length, predRange]);
 
-  async function loadAnalytics() {
+  useRealtime(["orders", "expenses"], () => {
+    loadAnalytics(false);
+  });
+
+  async function loadAnalytics(runAI = true) {
     setLoading(true);
     const now = new Date();
 
@@ -472,111 +459,197 @@ export default function Analytics() {
     return result;
   }
 
-  // ── Predictive: orders forecast ────────────────────────────────────────────
-  function getPredictiveData() {
-    if (!forecastOrders.length) return [];
+  async function generateAIForecast() {
+    const { data: cachedForecast } = await supabase
+      .from("ai_forecasts")
+      .select("*")
+      .eq("forecast_type", predRange)
+      .single();
+    if (cachedForecast) {
+      const generatedAt = new Date(cachedForecast.generated_at);
 
-    const dailyMap = {};
+      const hoursOld = (Date.now() - generatedAt.getTime()) / (1000 * 60 * 60);
 
-    forecastOrders.forEach((o) => {
-      const d = format(new Date(o.created_at), "yyyy-MM-dd");
-      dailyMap[d] = (dailyMap[d] || 0) + 1;
-    });
+      // ✅ Use cached AI if still fresh
+      if (hoursOld < 6) {
+        console.log("Using cached AI forecast");
 
-    const sortedDays = Object.keys(dailyMap).sort();
-    let recentDays;
+        setAiForecastData(cachedForecast.predictions);
 
-    if (predRange === "week") {
-      recentDays = sortedDays.slice(-14);
-    } else if (predRange === "month") {
-      recentDays = sortedDays.slice(-30);
-    } else {
-      recentDays = sortedDays.slice(-90);
+        setAiExplanation(cachedForecast.insights);
+
+        setForecastModel(cachedForecast.model);
+
+        setForecastLoading(false);
+
+        return;
+      }
     }
+    if (!forecastOrders.length) return;
 
-    const points = recentDays.map((d, i) => ({
-      x: i,
-      y: dailyMap[d],
-    }));
+    setForecastLoading(true);
 
-    const { slope, intercept } = linearRegression(points);
+    try {
+      const dailyMap = {};
 
-    const avg =
-      recentDays.length > 0
-        ? recentDays.reduce((s, d) => s + dailyMap[d], 0) / recentDays.length
-        : 0;
+      forecastOrders.forEach((o) => {
+        const d = format(new Date(o.created_at), "yyyy-MM-dd");
 
-    let futureDates = [];
-    const today = new Date();
-
-    if (predRange === "week") {
-      futureDates = Array.from({ length: 7 }, (_, i) => addDays(today, i + 1));
-    } else if (predRange === "month") {
-      futureDates = Array.from({ length: 30 }, (_, i) => addDays(today, i + 1));
-    } else {
-      // yearly → next 12 months
-      futureDates = Array.from({ length: 12 }, (_, i) => {
-        const d = new Date();
-        d.setMonth(d.getMonth() + i + 1);
-        return d;
+        dailyMap[d] = (dailyMap[d] || 0) + 1;
       });
+
+      const sortedDays = Object.keys(dailyMap).sort();
+
+      let recentDays;
+
+      if (predRange === "week") {
+        recentDays = sortedDays.slice(-14);
+      } else if (predRange === "month") {
+        recentDays = sortedDays.slice(-30);
+      } else {
+        recentDays = sortedDays.slice(-90);
+      }
+
+      const historicalData = recentDays.map((d) => ({
+        date: d,
+        orders: dailyMap[d],
+      }));
+      const requestKey = JSON.stringify({
+        predRange,
+        historicalData,
+      });
+
+      if (requestKey === lastForecastKey) {
+        console.log("Skipping duplicate AI forecast request");
+
+        setForecastLoading(false);
+
+        return;
+      }
+
+      const futureCount =
+        predRange === "week" ? 7 : predRange === "month" ? 30 : 12;
+      setAiExplanation("");
+      const aiResult = await askGemini(`
+You are a business forecasting AI for a laundry shop.
+
+Analyze this historical order data:
+
+${JSON.stringify(historicalData)}
+
+Forecast type:
+${
+  predRange === "week"
+    ? "Short-term weekly forecast"
+    : predRange === "month"
+      ? "Medium-term monthly forecast"
+      : "Long-term yearly forecast"
+}
+
+IMPORTANT:
+
+Return ONLY valid JSON.
+
+Format:
+{
+  "predictions": [
+    {
+      "date": "Mon",
+      "predicted": 12
     }
+  ],
 
-    // 🔥 BUILD HISTORICAL CONTEXT FOR ALL MODES
-    let histSlice = [];
+  "insights": [
+    "Trend Analysis: ...",
+    "Possible Reason: ...",
+    "Business Recommendation: ..."
+  ]
+}
 
-    // 🔥 PREDICTIONS
-    const predicted = futureDates.map((date, i) => {
-      const trend = slope * (recentDays.length + i) + intercept;
+Rules:
+- predictions must contain exactly ${futureCount} items
+- predicted must be numbers
+- insights must contain exactly 3 items
+- no markdown
+- no explanation outside JSON
+`);
 
-      let raw = trend * 0.7 + avg * 0.3;
+      if (!aiResult?.text) {
+        setForecastLoading(false);
+        return;
+      }
 
-      raw = Math.max(0, Math.min(raw, avg * 2));
+      let parsed;
 
-      return {
-        date:
-          predRange === "year"
-            ? format(date, "MMM yyyy")
-            : predRange === "month"
-              ? format(date, "MMM d")
-              : format(date, "EEE"),
-        predicted: isNaN(raw) ? 0 : Math.round(raw),
+      try {
+        console.log("RAW AI RESPONSE:", aiResult.text);
+
+        const cleanedText = aiResult.text
+          .replace(/```json/g, "")
+          .replace(/```/g, "")
+          .trim();
+
+        parsed = JSON.parse(cleanedText);
+
+        if (!parsed.predictions || !parsed.insights) {
+          throw new Error("Invalid AI response structure");
+        }
+      } catch (err) {
+        console.error("AI JSON Parse Error:", err);
+
+        setAiExplanation("AI returned an invalid forecast response.");
+
+        return;
+      }
+
+      const cleaned = parsed.predictions.map((item) => ({
+        date: item.date,
+        predicted: Number(item.predicted) || 0,
         isPrediction: true,
-      };
-    });
+      }));
 
-    return predicted;
+      setAiForecastData(cleaned);
+      setAiExplanation(parsed.insights.join("\n"));
+      setLastForecastKey(requestKey);
+      await supabase.from("ai_forecasts").upsert({
+        forecast_type: predRange,
+        predictions: cleaned,
+        insights: parsed.insights.join("\n"),
+        model: aiResult.model,
+        generated_at: new Date().toISOString(),
+      });
+
+      if (aiResult.model) {
+        setForecastModel(aiResult.model);
+      }
+    } catch (err) {
+      console.error("AI Forecast Error:", err);
+
+      setAiForecastData([
+        { date: "Mon", predicted: 8 },
+        { date: "Tue", predicted: 10 },
+        { date: "Wed", predicted: 12 },
+        { date: "Thu", predicted: 9 },
+        { date: "Fri", predicted: 14 },
+        { date: "Sat", predicted: 16 },
+        { date: "Sun", predicted: 11 },
+      ]);
+
+      setAiExplanation(`
+Trend Analysis: Forecast temporarily unavailable.
+
+Possible Reason: AI service quota or connection issue.
+
+Business Recommendation: Retry AI generation later.
+  `);
+    } finally {
+      setForecastLoading(false);
+    }
   }
 
   const descriptiveData = getDescriptiveData();
-  const predictiveData = getPredictiveData();
-  useEffect(() => {
-    async function explainForecast() {
-      if (!predictiveData.length) return;
 
-      const sample = predictiveData.slice(0, 7);
-
-      const text = await askGemini(`
-You are a data analyst.
-
-Here is predicted order data:
-${JSON.stringify(sample)}
-
-Explain:
-- trend (increasing/decreasing/stable)
-- possible reason
-- business recommendation
-
-Keep it simple.
-    `);
-
-      if (text) setAiExplanation(text);
-    }
-
-    explainForecast();
-  }, [predictiveData]);
-  const splitIndex = predictiveData.findIndex((d) => d.isPrediction);
-  const splitDate = splitIndex >= 0 ? predictiveData[splitIndex].date : null;
+  const predictiveData = aiForecastData;
 
   const predSubOptions = [
     { value: "week", label: "Next Week" },
@@ -872,9 +945,27 @@ Keep it simple.
                     color: "var(--text-muted)",
                   }}
                 >
-                  Predictive · Linear trend · Historical + forecast
+                  Predictive · AI Forecast ·{" "}
+                  {forecastModel || "Loading model..."}
                 </p>
               </div>
+              <button
+                onClick={() => {
+                  generateAIForecast();
+                }}
+                style={{
+                  border: "none",
+                  background: "#ede9fe",
+                  color: "#7c3aed",
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Refresh AI
+              </button>
               <SubFilter
                 value={predRange}
                 onChange={setPredRange}
@@ -926,12 +1017,147 @@ Keep it simple.
               </BarChart>
             </ResponsiveContainer>
           </div>
-          {aiExplanation && (
-            <div className="card" style={{ marginTop: 16 }}>
+          {(forecastLoading || aiExplanation) && (
+            <div
+              className="card"
+              style={{
+                marginTop: 16,
+                border: "1px solid #e9d5ff",
+                background: "linear-gradient(135deg, #faf5ff, #ffffff)",
+
+                // 🔥 FULL WIDTH FIX
+                gridColumn: "1 / -1",
+
+                width: "100%",
+
+                // 🔥 RESPONSIVE SAFETY
+                minWidth: 0,
+              }}
+            >
+              {/* HEADER */}
               <div className="card-header">
-                <h3>AI Explanation</h3>
+                <h3
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <TrendingUp size={18} style={{ color: "#8b5cf6" }} />
+                  AI Forecast Analysis
+                </h3>
+
+                <span
+                  className="badge"
+                  style={{
+                    background: "#ede9fe",
+                    color: "#7c3aed",
+                    fontSize: 11,
+                  }}
+                >
+                  {forecastModel || "Loading Model..."}
+                </span>
               </div>
-              <p style={{ fontSize: 14 }}>{aiExplanation}</p>
+
+              {/* LOADING */}
+              {forecastLoading ? (
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                >
+                  {[1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      style={{
+                        height: 60,
+                        borderRadius: 12,
+                        background:
+                          "linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%)",
+                        backgroundSize: "200% 100%",
+                        animation: "shimmer 1.5s infinite",
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 14 }}
+                >
+                  {aiExplanation
+                    .split(
+                      /(?=Trend Analysis:|Possible Reason:|Business Recommendation:)/,
+                    )
+                    .filter(Boolean)
+                    .map((line, i) => {
+                      let icon = TrendingUp;
+                      let color = "#8b5cf6";
+                      let bg = "#faf5ff";
+
+                      if (line.toLowerCase().includes("trend")) {
+                        color = "#3b82f6";
+                        bg = "#eff6ff";
+                      } else if (line.toLowerCase().includes("reason")) {
+                        color = "#f59e0b";
+                        bg = "#fffbeb";
+                      } else if (line.toLowerCase().includes("recommend")) {
+                        color = "#10b981";
+                        bg = "#ecfdf5";
+                      }
+
+                      const Icon = icon;
+
+                      return (
+                        <div
+                          key={i}
+                          style={{
+                            display: "flex",
+                            gap: 12,
+                            padding: "14px 16px",
+                            borderRadius: 12,
+                            background: bg,
+                            border: "1px solid rgba(0,0,0,0.05)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: 10,
+                              background: "white",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Icon size={18} style={{ color }} />
+                          </div>
+
+                          <div>
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                color,
+                                marginBottom: 4,
+                              }}
+                            >
+                              {line.split(":")[0]}
+                            </div>
+
+                            <div
+                              style={{
+                                fontSize: 13.5,
+                                color: "#374151",
+                                lineHeight: 1.6,
+                              }}
+                            >
+                              {line.split(":").slice(1).join(":")}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
           )}
         </div>

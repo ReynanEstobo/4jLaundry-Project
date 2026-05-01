@@ -4,33 +4,27 @@ const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const genAI = new GoogleGenerativeAI(API_KEY);
 
-// 🔥 FALLBACK MODELS
 const MODELS = [
-  "gemini-3-flash-preview",
-  "gemini-3-pro-preview",
-  "gemini-3.1-pro-preview",
-  "gemini-3.1-flash-lite-preview",
-
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-2.5-pro",
-
   "gemini-2.0-flash",
-  "gemini-2.0-flash-001",
   "gemini-2.0-flash-lite",
-  "gemini-2.0-flash-lite-001",
-
-  "gemini-flash-latest",
-  "gemini-flash-lite-latest",
-  "gemini-pro-latest",
-
-  "gemini-1.5-flash",
-  "gemini-1.5-pro",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
 ];
+
+const modelCooldowns = {};
 
 export async function askGemini(prompt) {
   for (const modelName of MODELS) {
     try {
+      const now = Date.now();
+
+      // 🔥 Skip cooling-down models
+      if (modelCooldowns[modelName] && now - modelCooldowns[modelName] < 5000) {
+        console.log(`Skipping cooldown model: ${modelName}`);
+        continue;
+      }
+
       console.log(`Trying model: ${modelName}`);
 
       const model = genAI.getGenerativeModel({
@@ -61,9 +55,11 @@ export async function askGemini(prompt) {
         errorText.includes("unsupported");
 
       if (shouldSwitch) {
+        modelCooldowns[modelName] = Date.now();
+
         console.log(`Switching model...`);
 
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
 
         continue;
       }
@@ -72,5 +68,8 @@ export async function askGemini(prompt) {
     }
   }
 
-  return null;
+  return {
+    text: null,
+    model: "Unavailable",
+  };
 }
