@@ -237,6 +237,7 @@ export default function Orders() {
   const BUNDLE_KG = Number(mappedSettings.bundleKg) || 8;
   const BUNDLE_PRICE = Number(mappedSettings.bundlePrice) || 200;
   const SOAP_PRICE = Number(mappedSettings.addonPrice) || 15;
+  const EXCESS_KG_PRICE = Number(settings.excesskgprice) || 30;
 
   const [form, setForm] = useState({
     customer_id: "",
@@ -273,12 +274,24 @@ export default function Orders() {
 
   function calcPrice(weight, addons) {
     if (!weight || weight <= 0) return 0;
-    const bundles = Math.ceil(weight / BUNDLE_KG);
+
+    // 🔥 BASE PRICE
+    let laundryPrice = BUNDLE_PRICE;
+
+    // 🔥 EXCESS KG AFTER 8KG
+    if (weight > BUNDLE_KG) {
+      const excessKg = Math.ceil(weight - BUNDLE_KG);
+
+      laundryPrice += excessKg * EXCESS_KG_PRICE;
+    }
+
+    // 🔥 ADD-ONS
     const totalAddonUnits = Object.values(addons || {}).reduce(
       (sum, qty) => sum + qty,
       0,
     );
-    return bundles * BUNDLE_PRICE + totalAddonUnits * SOAP_PRICE;
+
+    return laundryPrice + totalAddonUnits * SOAP_PRICE;
   }
 
   function updateAddon(itemId, delta) {
@@ -467,8 +480,6 @@ export default function Orders() {
     const interval = setInterval(checkAndAdvance, 3000);
     return () => clearInterval(interval);
   }, [settings, loadData]);
-
-  
 
   function openNew() {
     setEditing(null);
@@ -1676,18 +1687,27 @@ export default function Orders() {
                       <span>
                         Laundry (
                         {form.weight_kg
-                          ? `${Math.ceil(parseFloat(form.weight_kg) / BUNDLE_KG)} load${Math.ceil(parseFloat(form.weight_kg) / BUNDLE_KG) > 1 ? "s" : ""} \u00D7 \u20B1${BUNDLE_PRICE}`
-                          : `\u20B1${BUNDLE_PRICE} per ${BUNDLE_KG}kg`}
+                          ? parseFloat(form.weight_kg) <= BUNDLE_KG
+                            ? `₱${BUNDLE_PRICE} minimum (${BUNDLE_KG}kg below)`
+                            : `₱${BUNDLE_PRICE} + ₱${EXCESS_KG_PRICE}/kg excess`
+                          : `₱${BUNDLE_PRICE} minimum for ${BUNDLE_KG}kg`}
                         )
                       </span>
                       <span>
                         ₱
                         {form.weight_kg
-                          ? (
-                              Math.ceil(
-                                parseFloat(form.weight_kg) / BUNDLE_KG,
-                              ) * BUNDLE_PRICE
-                            ).toLocaleString()
+                          ? (() => {
+                              const weight = parseFloat(form.weight_kg) || 0;
+
+                              if (weight <= BUNDLE_KG) {
+                                return BUNDLE_PRICE;
+                              }
+
+                              return (
+                                BUNDLE_PRICE +
+                                Math.ceil(weight - BUNDLE_KG) * EXCESS_KG_PRICE
+                              );
+                            })().toLocaleString()
                           : "0"}
                       </span>
                     </div>

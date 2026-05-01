@@ -1,6 +1,5 @@
 import {
   Bell,
-  Clock,
   DollarSign,
   Eye,
   EyeOff,
@@ -9,7 +8,6 @@ import {
   Palette,
   Save,
   Shield,
-  Store,
   Sun,
   Timer,
 } from "lucide-react";
@@ -33,9 +31,6 @@ export default function Settings() {
   // Business settings
   const [settings, setSettings] = useState(null);
 
-  const [shopName, setShopName] = useState("4J Laundry");
-  const [openTime, setOpenTime] = useState("08:00");
-  const [closeTime, setCloseTime] = useState("20:00");
   const [darkMode, setDarkMode] = useState(false);
   const [notifications, setNotifications] = useState(true);
 
@@ -43,6 +38,7 @@ export default function Settings() {
   const [bundleKg, setBundleKg] = useState(8);
   const [bundlePrice, setBundlePrice] = useState(200);
   const [addonPrice, setAddonPrice] = useState(15);
+  const [excessKgPrice, setExcessKgPrice] = useState(30);
 
   // ETA settings
   const [etaWash, setEtaWash] = useState(45);
@@ -60,15 +56,14 @@ export default function Settings() {
         setSettings(data);
 
         // populate UI fields
-        setShopName(data.shopname || "4J Laundry");
-        setOpenTime(data.opentime || "08:00");
-        setCloseTime(data.closetime || "20:00");
+
         setDarkMode(data.darkmode || false);
         setNotifications(data.notifications !== false);
 
         setBundleKg(data.bundlekg || 8);
         setBundlePrice(data.bundleprice || 200);
         setAddonPrice(data.addonprice || 15);
+        setExcessKgPrice(data.excesskgprice || 30);
 
         setEtaWash(data.etawash || 45);
         setEtaDrying(data.etadrying || 40);
@@ -99,6 +94,7 @@ export default function Settings() {
             setBundleKg(data.bundlekg || 8);
             setBundlePrice(data.bundleprice || 200);
             setAddonPrice(data.addonprice || 15);
+            setExcessKgPrice(data.excesskgprice || 30);
 
             setEtaWash(data.etawash || 45);
             setEtaDrying(data.etadrying || 40);
@@ -166,14 +162,12 @@ export default function Settings() {
     const { error } = await supabase
       .from("settings")
       .update({
-        shopname: shopName,
-        opentime: openTime,
-        closetime: closeTime,
         darkmode: darkMode,
         notifications,
         bundlekg: Number(bundleKg),
         bundleprice: Number(bundlePrice),
         addonprice: Number(addonPrice),
+        excesskgprice: Number(excessKgPrice),
         etawash: Number(etaWash),
         etadrying: Number(etaDrying),
         etafolding: Number(etaFolding),
@@ -198,13 +192,6 @@ export default function Settings() {
   };
 
   // Format time for display
-  const formatTime = (t) => {
-    const [h, m] = t.split(":");
-    const hour = parseInt(h);
-    const ampm = hour >= 12 ? "PM" : "AM";
-    const h12 = hour % 12 || 12;
-    return `${h12}:${m} ${ampm}`;
-  };
 
   if (!settings) return null;
   return (
@@ -374,90 +361,6 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* ====== BUSINESS SETTINGS ====== */}
-        <div className="card settings-card settings-card-wide">
-          <div className="settings-card-header">
-            <div className="settings-card-icon green">
-              <Store size={20} />
-            </div>
-            <div>
-              <h3>Business Settings</h3>
-              <p>Configure your shop details and operating hours</p>
-            </div>
-          </div>
-
-          <div className="settings-business-grid">
-            <div className="form-group">
-              <label>Shop Name</label>
-              <div className="settings-input-wrapper">
-                <Store size={16} className="settings-input-icon" />
-                <input
-                  className="form-control"
-                  type="text"
-                  value={shopName}
-                  onChange={(e) => setShopName(e.target.value)}
-                  placeholder="Enter shop name"
-                  style={{ paddingLeft: 38 }}
-                />
-              </div>
-            </div>
-
-            <div className="form-group" />
-
-            <div className="form-group">
-              <label>Opening Time</label>
-              <div className="settings-input-wrapper">
-                <Clock size={16} className="settings-input-icon" />
-                <input
-                  className="form-control"
-                  type="time"
-                  value={openTime}
-                  onChange={(e) => setOpenTime(e.target.value)}
-                  style={{ paddingLeft: 38 }}
-                />
-              </div>
-              <span className="settings-time-display">
-                {formatTime(openTime)}
-              </span>
-            </div>
-
-            <div className="form-group">
-              <label>Closing Time</label>
-              <div className="settings-input-wrapper">
-                <Clock size={16} className="settings-input-icon" />
-                <input
-                  className="form-control"
-                  type="time"
-                  value={closeTime}
-                  onChange={(e) => setCloseTime(e.target.value)}
-                  style={{ paddingLeft: 38 }}
-                />
-              </div>
-              <span className="settings-time-display">
-                {formatTime(closeTime)}
-              </span>
-            </div>
-          </div>
-
-          <div className="settings-hours-preview">
-            <Clock size={16} />
-            <span>
-              Operating Hours:{" "}
-              <strong>
-                {formatTime(openTime)} — {formatTime(closeTime)}
-              </strong>
-            </span>
-          </div>
-
-          <button
-            className="btn btn-primary"
-            onClick={handleSaveBusinessSettings}
-            style={{ marginTop: 8 }}
-          >
-            <Save size={15} /> Save Business Settings
-          </button>
-        </div>
-
         {/* ====== PRICING ====== */}
         <div className="card settings-card">
           <div className="settings-card-header">
@@ -495,10 +398,22 @@ export default function Settings() {
                   onChange={(e) => setBundlePrice(e.target.value)}
                 />
               </div>
+              <div className="form-group">
+                <label>Excess Price per KG (₱)</label>
+                <input
+                  className="form-control"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={excessKgPrice}
+                  onChange={(e) => setExcessKgPrice(e.target.value)}
+                />
+              </div>
             </div>
             <div className="settings-pricing-preview">
               <span>
-                ₱{Number(bundlePrice).toLocaleString()} per {bundleKg}kg load
+                ₱{Number(bundlePrice).toLocaleString()} minimum for {bundleKg}kg
+                + ₱{Number(excessKgPrice).toLocaleString()} per excess kg
               </span>
             </div>
           </div>
