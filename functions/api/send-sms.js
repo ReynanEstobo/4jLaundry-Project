@@ -8,16 +8,11 @@ export async function onRequestPost(context) {
   };
 
   try {
-    // Parse request body
     const { phone, message } = await context.request.json();
 
-    // Validate required fields
     if (!phone || !message) {
       return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Missing required fields: phone and message",
-        }),
+        JSON.stringify({ error: "Missing required fields: phone, message" }),
         {
           status: 400,
           headers,
@@ -25,16 +20,12 @@ export async function onRequestPost(context) {
       );
     }
 
-    // Get Semaphore API Key from Cloudflare environment variables
     const apiKey = context.env.SEMAPHORE_API_KEY;
+    const senderName = context.env.SEMAPHORE_SENDER_NAME || "4JLaundry";
 
-    // Check if API key exists
     if (!apiKey) {
       return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Semaphore API key not configured",
-        }),
+        JSON.stringify({ error: "Semaphore API key not configured" }),
         {
           status: 500,
           headers,
@@ -42,50 +33,28 @@ export async function onRequestPost(context) {
       );
     }
 
-    // Normalize Philippine mobile number
-    // Example:
-    // 09171234567 -> 639171234567
-    let normalizedPhone = phone.trim();
+    const normalizedPhone = phone.startsWith("0")
+      ? "63" + phone.substring(1)
+      : phone;
 
-    if (normalizedPhone.startsWith("0")) {
-      normalizedPhone = "63" + normalizedPhone.substring(1);
-    }
-
-    // Create request body for Semaphore
-    // IMPORTANT:
-    // No sendername included
-    // Semaphore will use default sender
     const params = new URLSearchParams({
       apikey: apiKey,
       number: normalizedPhone,
       message: message,
+      sendername: senderName,
     });
 
-    // Send SMS request to Semaphore
-    const smsResponse = await fetch(
-      "https://api.semaphore.co/api/v4/messages",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: params.toString(),
-      },
-    );
+    const smsRes = await fetch("https://api.semaphore.co/api/v4/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
 
-    // Parse Semaphore response
-    const data = await smsResponse.json();
+    const data = await smsRes.json();
 
-    console.log("Semaphore Response:", data);
-
-    // Handle Semaphore API errors
-    if (!smsResponse.ok) {
+    if (!smsRes.ok) {
       return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Semaphore API error",
-          details: data,
-        }),
+        JSON.stringify({ error: "Semaphore API error", details: data }),
         {
           status: 502,
           headers,
@@ -93,13 +62,8 @@ export async function onRequestPost(context) {
       );
     }
 
-    // Success response
     return new Response(
-      JSON.stringify({
-        success: true,
-        message: "SMS sent successfully",
-        data,
-      }),
+      JSON.stringify({ success: true, message: "SMS sent successfully", data }),
       {
         status: 200,
         headers,
@@ -107,13 +71,8 @@ export async function onRequestPost(context) {
     );
   } catch (error) {
     console.error("SMS send error:", error);
-
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: "Failed to send SMS",
-        details: error.message,
-      }),
+      JSON.stringify({ error: "Failed to send SMS", details: error.message }),
       {
         status: 500,
         headers,
@@ -122,10 +81,8 @@ export async function onRequestPost(context) {
   }
 }
 
-// Handle OPTIONS request for CORS
 export async function onRequestOptions() {
   return new Response(null, {
-    status: 204,
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "Content-Type",
