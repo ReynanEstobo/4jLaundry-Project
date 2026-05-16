@@ -1494,13 +1494,26 @@ export default function Orders() {
                       <input
                         className="form-control"
                         placeholder="09171234567"
+                        type="tel"
+                        maxLength={11}
+                        inputMode="numeric"
                         value={form.customer_phone}
                         onChange={(e) => {
-                          const phone = e.target.value;
-                          setForm((f) => ({ ...f, customer_phone: phone }));
-                          if (phone.length >= 11) lookupPhone(phone);
-                          else {
+                          // REMOVE NON-NUMBERS
+                          const phone = e.target.value
+                            .replace(/\D/g, "")
+                            .slice(0, 11);
+
+                          setForm((f) => ({
+                            ...f,
+                            customer_phone: phone,
+                          }));
+
+                          if (phone.length === 11) {
+                            lookupPhone(phone);
+                          } else {
                             setPhoneMatch(null);
+
                             setForm((f) => ({
                               ...f,
                               customer_id: "",
@@ -1750,18 +1763,10 @@ export default function Orders() {
                       <label>Method</label>
                       <select
                         className="form-control"
-                        value={form.payment_method}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            payment_method: e.target.value,
-                          }))
-                        }
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
                       >
                         <option value="cash">Cash</option>
-                        <option value="gcash">GCash</option>
-                        <option value="bank_transfer">Bank Transfer</option>
-                        <option value="card">Card</option>
                       </select>
                     </div>
                     <div className="form-group">
@@ -1891,11 +1896,15 @@ export default function Orders() {
                 <label>Payment Method</label>
                 <select
                   className="form-control"
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  value={form.payment_method}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      payment_method: e.target.value,
+                    }))
+                  }
                 >
                   <option value="cash">Cash</option>
-                  <option value="gcash">GCash</option>
                 </select>
               </div>
             </div>
