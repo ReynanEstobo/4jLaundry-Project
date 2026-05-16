@@ -588,10 +588,10 @@ ${formData.message}
           <div className="landing-logo">
             <img
               src="/assets/Rectangle.png"
-              alt="4J Laundry"
+              alt="I&C Laundry Hub"
               className="landing-logo-img-nav"
             />
-            <span>4J Laundry</span>
+            <span>I&C Laundry Hub</span>
           </div>
           <div className="landing-nav-links">
             <a href="#home" onClick={(e) => scrollToSection(e, "home")}>
@@ -634,11 +634,12 @@ ${formData.message}
             </div>
             <h1>
               Simplify Your Life with{" "}
-              <span className="text-highlight">4J Laundry</span> Service
+              <span className="text-highlight">I&C Laundry Hub</span> Service
             </h1>
             <p>
-              We provide reliable, high-quality laundry and garment care
-              services. Fresh, clean, and perfectly folded every time.
+              A modern multi-branch laundry management platform designed to
+              provide efficient garment tracking, customer service, analytics,
+              loyalty rewards, and AI-powered operational insights.
             </p>
             <div className="landing-hero-buttons">
               <button
@@ -697,7 +698,7 @@ ${formData.message}
                 alt: "Walk-in",
                 num: "01",
                 title: "Walk-in to Store",
-                desc: "Visit our store at Brgy. Palikpikan, Balayan, Batangas",
+                desc: "Visit our store at Paz Street, Brgy. 7, Balayan, Batangas",
               },
               null,
               {
@@ -930,8 +931,7 @@ ${formData.message}
                   </div>
                   <div>
                     <strong>Phone</strong>
-                    <span>0916-048-7671</span>
-                    <span>0955-381-0168</span>
+                    <span>0967-281-3602</span>
                   </div>
                 </div>
                 <div className="landing-contact-item">
@@ -940,7 +940,7 @@ ${formData.message}
                   </div>
                   <div>
                     <strong>Email</strong>
-                    <span>shopjlaundry7@gmail.com</span>
+                    <span>I&Claundry7@gmail.com</span>
                   </div>
                 </div>
                 <div className="landing-contact-item">
@@ -949,7 +949,7 @@ ${formData.message}
                   </div>
                   <div>
                     <strong>Address</strong>
-                    <span>Brgy. Palikpikan, Balayan, Batangas</span>
+                    <span>Paz Street, Brgy. 7, Balayan, Batangas</span>
                   </div>
                 </div>
               </div>
@@ -1054,11 +1054,11 @@ ${formData.message}
             <div className="landing-logo">
               <img
                 src="/assets/Rectangle.png"
-                alt="4J Laundry"
+                alt="I&C Laundry"
                 className="landing-logo-img"
               />
               <span>
-                <strong>4J</strong> Laundry Shop
+                <strong>I&C</strong> Laundry Hub
               </span>
             </div>
             <p>
@@ -1073,15 +1073,15 @@ ${formData.message}
             <div className="landing-footer-contact-card">
               <div className="landing-footer-contact-item">
                 <Phone size={18} />
-                <span>0976-048-7671 | 0955-381-0168</span>
+                <span>0967-281-3602</span>
               </div>
               <div className="landing-footer-contact-item">
                 <Mail size={18} />
-                <span>shopjlaundry7@gmail.com</span>
+                <span>I&Claundry7@gmail.com</span>
               </div>
               <div className="landing-footer-contact-item">
                 <MapPin size={18} />
-                <span>Brgy. Palikpikan, Balayan, Batangas.</span>
+                <span>Paz Street, Brgy. 7, Balayan, Batangas</span>
               </div>
             </div>
           </div>
@@ -1089,7 +1089,7 @@ ${formData.message}
         <div className="landing-footer-bottom">
           <div className="landing-container">
             <p>
-              Copyright &copy; {new Date().getFullYear()} 4j. All rights
+              Copyright &copy; {new Date().getFullYear()} I&C. All rights
               reserved
             </p>
           </div>
