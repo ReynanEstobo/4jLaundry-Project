@@ -132,7 +132,7 @@ export default function Inventory() {
     setForm({
       name: "",
       category_id: "",
-      branch: "Main - Brgy 7",
+      branch: role === "staff" ? branch : "Main - Brgy 7",
       unit: "pcs",
       current_stock: "",
       minimum_stock: "",
@@ -568,26 +568,29 @@ export default function Inventory() {
                 </div>
                 <div className="form-row">
                   {/* BRANCH */}
-                  <div className="form-group">
-                    <label>Assigned Branch *</label>
+                  {/* ADMIN ONLY BRANCH ASSIGNMENT */}
+                  {role === "admin" && (
+                    <div className="form-group">
+                      <label>Assigned Branch *</label>
 
-                    <select
-                      className="form-control"
-                      value={form.branch}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          branch: e.target.value,
-                        }))
-                      }
-                    >
-                      {BRANCHES.map((b) => (
-                        <option key={b} value={b}>
-                          {b}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <select
+                        className="form-control"
+                        value={form.branch}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            branch: e.target.value,
+                          }))
+                        }
+                      >
+                        {BRANCHES.map((b) => (
+                          <option key={b} value={b}>
+                            {b}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   {/* UNIT */}
                   <div className="form-group">
