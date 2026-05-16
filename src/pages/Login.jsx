@@ -31,11 +31,11 @@ export default function Login() {
 
         <img
           src="/assets/Rectangle.png"
-          alt="4J Laundry"
+          alt="I&C Laundry Hub"
           className="login-left-logo"
         />
         <div className="login-left-text">
-          <h1>4J Laundry</h1>
+          <h1>I&C Laundry Hub</h1>
           <p>
             Professional laundry services — fresh, clean, and perfectly cared
             every time.
@@ -61,7 +61,7 @@ export default function Login() {
               </div>
               <div>
                 <h2>Welcome back</h2>
-                <p>Sign in to 4J Laundry dashboard</p>
+                <p>Sign in to I&C Laundry Hub dashboard</p>
               </div>
             </div>
 
@@ -131,7 +131,7 @@ export default function Login() {
             </form>
 
             <div className="login-card-footer">
-              Powered by 4J Laundry &copy; {new Date().getFullYear()}
+              Powered by I&C Laundry Hub &copy; {new Date().getFullYear()}
             </div>
           </div>
         </div>

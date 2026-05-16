@@ -2,7 +2,6 @@ import { differenceInDays, format, startOfToday } from "date-fns";
 import {
   AlertTriangle,
   ArrowRight,
-  BarChart2,
   Bell,
   Brain,
   CheckCircle2,
@@ -503,7 +502,7 @@ Do NOT add extra text.
         type: "info",
         icon: Bell,
         title: `${readyCount} Order${readyCount > 1 ? "s" : ""} Ready for Pickup`,
-        message: `Send SMS notifications to customers about their completed laundry. Don't keep them waiting!`,
+        message: `Send Email notifications to customers about their completed laundry. Don't keep them waiting!`,
         action: "Send Notifications",
         link: "/dashboard/sms",
       });
@@ -772,42 +771,6 @@ Do NOT add extra text.
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {/* Predicted Workload */}
-            <div className="forecast-row forecast-workload">
-              <div
-                className="forecast-icon-wrap"
-                style={{
-                  background: "rgba(139,92,246,0.12)",
-                  color: "#8b5cf6",
-                }}
-              >
-                <BarChart2 size={20} />
-              </div>
-              <div className="forecast-content">
-                <span className="forecast-label">Predicted Workload:</span>
-                <strong className="forecast-value" style={{ color: "#8b5cf6" }}>
-                  {forecasts.workloadPct}%
-                </strong>
-                <span
-                  className={`forecast-badge ${forecasts.workloadPct >= 80 ? "high" : forecasts.workloadPct >= 50 ? "moderate" : "normal"}`}
-                >
-                  {forecasts.workloadLevel}
-                </span>
-              </div>
-              <div className="forecast-bar-track">
-                <div
-                  className="forecast-bar-fill"
-                  style={{
-                    width: `${forecasts.workloadPct}%`,
-                    background:
-                      forecasts.workloadPct >= 80
-                        ? "#ef4444"
-                        : forecasts.workloadPct >= 50
-                          ? "#f59e0b"
-                          : "#10b981",
-                  }}
-                />
-              </div>
-            </div>
 
             {/* Predicted Revenue */}
             <div className="forecast-row forecast-revenue">
@@ -834,28 +797,6 @@ Do NOT add extra text.
                     {Math.abs(forecasts.revenueTrend)}%
                   </span>
                 )}
-              </div>
-            </div>
-
-            {/* Peak Day */}
-            <div className="forecast-row forecast-peak">
-              <div
-                className="forecast-icon-wrap"
-                style={{
-                  background: "rgba(46,167,224,0.12)",
-                  color: "#2EA7E0",
-                }}
-              >
-                <Clock size={20} />
-              </div>
-              <div className="forecast-content">
-                <span className="forecast-label">Busiest Day:</span>
-                <strong className="forecast-value" style={{ color: "#2EA7E0" }}>
-                  {forecasts.peakDay}
-                </strong>
-                <span className="forecast-sublabel">
-                  ~{forecasts.avgDailyOrders} orders/day avg
-                </span>
               </div>
             </div>
 
